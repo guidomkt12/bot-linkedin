@@ -7,96 +7,136 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 80;
 
-// Configuração para salvar imagens temporariamente
+// Configuração do upload (imagens temporárias)
 const upload = multer({ dest: '/tmp/uploads/' });
 
-app.get('/', (req, res) => res.send('Bot LinkedIn Atualizado (Aceita params)! 🚀'));
+app.get('/', (req, res) => {
+    res.send('Bot LinkedIn Online! 🚀 Aguardando requisições POST em /publicar');
+});
 
 // Endpoint principal
 app.post('/publicar', upload.single('imagem'), async (req, res) => {
-    try {
-        // Pega os dados vindos do n8n
-        const { texto, paginaUrl, email: emailBody, senha: senhaBody } = req.body;
-        const imagePath = req.file ? req.file.path : null;
+    // Caminho da imagem (se houver)
+    const imagePath = req.file ? req.file.path : null;
 
-        // PRIORIDADE: Usa o que veio do n8n. Se não tiver, tenta usar do servidor.
+    try {
+        console.log('Recebendo requisição...');
+        
+        // 1. Captura dados (prioriza o que vem do n8n, senão usa do ambiente)
+        const { texto, paginaUrl, email: emailBody, senha: senhaBody } = req.body;
+        
         const email = emailBody || process.env.LINKEDIN_EMAIL;
         const senha = senhaBody || process.env.LINKEDIN_PASSWORD;
 
-        // Validação
+        // 2. Validações básicas
         if (!email || !senha) {
-            if (imagePath) await fs.remove(imagePath);
-            return res.status(400).json({ erro: 'Faltam dados de LOGIN (email ou senha).' });
+            throw new Error('Email e Senha são obrigatórios (envie pelo n8n ou configure no Painel).');
         }
         if (!paginaUrl) {
-            if (imagePath) await fs.remove(imagePath);
-            return res.status(400).json({ erro: 'Falta a URL da página (paginaUrl).' });
+            throw new Error('A URL da página (paginaUrl) é obrigatória.');
         }
 
-        console.log(`Iniciando login com: ${email}`);
-        
+        console.log(`Iniciando login com usuário: ${email}`);
+
+        // 3. Inicia o Navegador
         const browser = await puppeteer.launch({
-            headless: true,
+            headless: true, // true para servidor, false para teste local
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
             defaultViewport: { width: 1280, height: 800 }
         });
 
         const page = await browser.newPage();
 
-        // --- 1. Login ---
+        // --- Fluxo de Login ---
         await page.goto('https://www.linkedin.com/login', { waitUntil: 'networkidle2' });
-        await page.type('#username', email, { delay: 30 });
-        await page.type('#password', senha, { delay: 30 });
+        await page.type('#username', email, { delay: 50 });
+        await page.type('#password', senha, { delay: 50 });
         await page.click('[type="submit"]');
         
+        // Espera login concluir
         try {
             await page.waitForNavigation({ timeout: 15000 });
         } catch (e) {
-            // Verifica se pediu PIN
-            if (await page.$('input[name="pin"]')) throw new Error('LinkedIn pediu verificação de 2FA (PIN).');
+            // Se der timeout, verifica se pediu PIN/Código
+            if (await page.$('input[name="pin"]')) {
+                throw new Error('O LinkedIn pediu verificação de segurança (PIN/2FA).');
+            }
+        }
+        
+        console.log('Login efetuado (supostamente). Navegando para a página...');
+
+        // --- Fluxo de Postagem ---
+        await page.goto(paginaUrl, { waitUntil: 'domcontentloaded' });
+        await new Promise(r => setTimeout(r, 5000)); // Espera carregar a página admin
+
+        // Clica em "Começar publicação"
+        const btnSelector = 'button.share-box-feed-entry__trigger, button.share-box__open';
+        try {
+            await page.waitForSelector(btnSelector, { timeout: 10000 });
+            await page.click(btnSelector);
+        } catch (e) {
+            throw new Error('Não encontrei o botão de criar post. Verifique se o link é da página ADMIN.');
         }
 
-        // --- 2. Postar ---
-        console.log('Indo para:', paginaUrl);
-        await page.goto(paginaUrl, { waitUntil: 'domcontentloaded' });
-        await new Promise(r => setTimeout(r, 4000));
-
-        // Clica para começar post
-        const btnStart = await page.waitForSelector('button.share-box-feed-entry__trigger, button.share-box__open', { timeout: 15000 });
-        await btnStart.click();
         await new Promise(r => setTimeout(r, 2000));
 
-        // Upload de imagem
+        // Upload de Imagem (se enviada)
         if (imagePath) {
-            console.log('Subindo imagem...');
-            // Tenta clicar no botão de mídia se necessário
+            console.log('Anexando imagem...');
+            // Tenta clicar no ícone de foto/mídia se necessário
             const mediaBtn = await page.$('button[aria-label*="Photo"], button[aria-label*="foto"], button.share-actions__primary-action--media');
             if (mediaBtn) await mediaBtn.click();
             await new Promise(r => setTimeout(r, 1000));
 
-            const input = await page.waitForSelector('input[type="file"]');
-            await input.uploadFile(imagePath);
+            const inputUpload = await page.waitForSelector('input[type="file"]');
+            await inputUpload.uploadFile(imagePath);
+            
+            // Espera preview aparecer
             await page.waitForSelector('.share-creation-state__media-preview, img[alt*="Preview"]', { timeout: 20000 });
             await new Promise(r => setTimeout(r, 2000));
         }
 
-        // Texto
+        // Digitar Texto
         if (texto) {
             console.log('Digitando texto...');
             const editor = await page.waitForSelector('.ql-editor, div[role="textbox"]');
             await editor.click();
-            await page.keyboard.type(texto, { delay: 10 });
+            await page.keyboard.type(texto, { delay: 20 });
             await new Promise(r => setTimeout(r, 1000));
         }
 
         // Publicar
-        console.log('Publicando...');
+        console.log('Clicando em Publicar...');
         const btnPost = await page.waitForSelector('button.share-actions__primary-action');
-        await btnPost.click();
-        await new Promise(r => setTimeout(r, 5000));
+        
+        // Verifica se está habilitado
+        const isDisabled = await page.evaluate(el => el.disabled, btnPost);
+        if (isDisabled) throw new Error('Botão de publicar está desabilitado (algo faltando?).');
 
-        console.log('Sucesso!');
-        if (browser) await browser.close();
+        await btnPost.click();
+        await new Promise(r => setTimeout(r, 5000)); // Espera confirmar
+
+        console.log('Post realizado com sucesso!');
+        await browser.close();
+
+        // Limpa arquivo temporário
         if (imagePath) await fs.remove(imagePath);
 
-        res.json({ status: 'su
+        res.json({ status: 'sucesso', mensagem: 'Post publicado com sucesso!' });
+
+    } catch (error) {
+        console.error('Erro na execução:', error.message);
+        // Limpa arquivo se der erro
+        if (imagePath) await fs.remove(imagePath).catch(() => {});
+        
+        res.status(500).json({ 
+            status: 'erro', 
+            mensagem: error.message,
+            dica: 'Verifique os Logs do Easypanel para ver detalhes.'
+        });
+    }
+});
+
+app.listen(PORT, () => {
+    console.log(`Servidor rodando na porta ${PORT}`);
+});
