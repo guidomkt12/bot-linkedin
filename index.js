@@ -156,4 +156,26 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
 
         // --- 3. PUBLICAR ---
         console.log('🚀 Publicando...');
-        await new Promise(r =>
+        await new Promise(r => setTimeout(r, 3000));
+        
+        const btnPost = await page.waitForSelector('button.share-actions__primary-action');
+        
+        // Clica sem medo
+        await btnPost.click();
+        
+        // Espera longa para garantir upload + envio
+        await new Promise(r => setTimeout(r, 12000));
+
+        console.log('✅ SUCESSO V33!');
+        const finalImg = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
+        res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': finalImg.length });
+        res.end(finalImg);
+
+    } catch (error) {
+        if (page) await abortWithProof(page, error.message);
+        else res.status(500).json({ erro: error.message });
+    } finally {
+        if (browser) await browser.close();
+        if (imagePath) await fs.remove(imagePath).catch(()=>{});
+    }
+});
