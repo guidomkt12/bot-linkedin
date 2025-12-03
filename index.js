@@ -206,6 +206,152 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
         if (browser) await browser.close();
         if (imagePath) await fs.remove(imagePath).catch(()=>{});
     }
+});    try {
+        console.log('--- TENTATIVA V13 (Verificação Constante) ---');
+        const { texto, paginaUrl, cookies, imagemUrl } = req.body;
+        
+        if (!imagePath && imagemUrl) {
+            try {
+                console.log('Baixando imagem...');
+                imagePath = await downloadImage(imagemUrl);
+            } catch (e) { console.error('Erro download:', e.message); }
+        }
+
+        const cookiesEnv = process.env.LINKEDIN_COOKIES;
+        const cookiesFinal = cookies || cookiesEnv;
+
+        if (!cookiesFinal) throw new Error('Cookies obrigatórios.');
+
+        browser = await puppeteer.launch({
+            headless: true,
+            args: [
+                '--no-sandbox', 
+                '--disable-setuid-sandbox', 
+                '--window-size=1920,1080',
+                '--disable-blink-features=AutomationControlled'
+            ],
+            defaultViewport: { width: 1920, height: 1080 },
+            timeout: 30000, // Timeout curto de 30s para abrir
+            userDataDir: '/tmp/session_v13' // Persistência
+        });
+
+        page = await browser.newPage();
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
+
+        // Cookies
+        console.log('Injetando cookies...');
+        const cookiesJson = typeof cookiesFinal === 'string' ? JSON.parse(cookiesFinal) : cookiesFinal;
+        if (Array.isArray(cookiesJson)) await page.setCookie(...cookiesJson);
+
+        // Navegação
+        console.log(`Indo para: ${paginaUrl}`);
+        await page.goto(paginaUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await new Promise(r => setTimeout(r, 5000));
+
+        // CHECAGEM 1: Chegou vivo?
+        await checkLogin(page, 'Navegação Inicial');
+
+        // BUSCA BOTÃO (Com timeout curto para falhar rápido se não achar)
+        console.log('Procurando botão...');
+        const postBoxSelectors = ['button.share-box-feed-entry__trigger', 'div.share-box-feed-entry__trigger', 'button[aria-label="Start a post"]', 'button[aria-label="Começar publicação"]'];
+        
+        let found = false;
+        for (const sel of postBoxSelectors) {
+            const el = await page.$(sel);
+            if (el) {
+                await el.click();
+                found = true;
+                break;
+            }
+        }
+        
+        // CHECAGEM 2: Ainda logado após tentar clicar?
+        await checkLogin(page, 'Após Busca de Botão');
+
+        if (!found) {
+            // Se não achou seletor, tenta texto
+            const buttons = await page.$$('button, div[role="button"]');
+            for (const btn of buttons) {
+                const text = await page.evaluate(el => el.textContent, btn);
+                if (text && (text.includes('Começar publicação') || text.includes('Start a post'))) {
+                    await btn.click();
+                    found = true;
+                    break;
+                }
+            }
+        }
+
+        if (!found) throw new Error('Botão de postar sumiu (Provável layout diferente ou deslogado).');
+
+        // Espera modal
+        await page.waitForSelector('div[role="dialog"]', { timeout: 10000 });
+        console.log('Modal aberto.');
+
+        // UPLOAD
+        if (imagePath) {
+            console.log('Upload Imagem...');
+            const input = await page.waitForSelector('input[type="file"]', { timeout: 10000 });
+            await input.uploadFile(imagePath);
+            
+            // Espera preview (Aumentado timeout mas checando erro)
+            try {
+                await page.waitForSelector('.share-creation-state__media-preview, img[alt*="Preview"]', { timeout: 60000 });
+                console.log('Imagem carregada.');
+            } catch (e) {
+                await checkLogin(page, 'Durante Upload'); // Verifica se caiu durante upload
+                throw new Error('Timeout no upload da imagem.');
+            }
+            await new Promise(r => setTimeout(r, 2000));
+        }
+
+        // TEXTO
+        if (texto) {
+            console.log('Escrevendo...');
+            const editor = await page.waitForSelector('.ql-editor, div[role="textbox"]');
+            await editor.click();
+            await page.keyboard.type(texto, { delay: 10 });
+        }
+
+        // PUBLICAR
+        console.log('Publicando...');
+        const btnPost = await page.waitForSelector('button.share-actions__primary-action');
+        
+        // Verifica se habilitado
+        const isDisabled = await page.evaluate(el => el.disabled, btnPost);
+        if (isDisabled) await new Promise(r => setTimeout(r, 3000));
+
+        await btnPost.click();
+        
+        // Espera confirmação ou erro
+        await new Promise(r => setTimeout(r, 5000));
+        await checkLogin(page, 'Pós-Clique Publicar');
+
+        console.log('SUCESSO!');
+        res.json({ status: 'sucesso', mensagem: 'Postado V13!' });
+
+    } catch (error) {
+        console.error('ERRO FATAL:', error.message);
+        
+        if (page) {
+            try {
+                // Tira print IMEDIATAMENTE e manda buffer direto (mais rápido que salvar arquivo)
+                const screenshotBuffer = await page.screenshot({ fullPage: true, type: 'jpeg', quality: 80 });
+                res.writeHead(200, {
+                    'Content-Type': 'image/jpeg',
+                    'Content-Length': screenshotBuffer.length,
+                    'X-Error-Message': error.message // Manda o erro no header
+                });
+                res.end(screenshotBuffer);
+            } catch (e) {
+                res.status(500).json({ erro: error.message, erro_print: 'Falha no print' });
+            }
+        } else {
+            res.status(500).json({ erro: error.message });
+        }
+    } finally {
+        if (browser) await browser.close();
+        if (imagePath) await fs.remove(imagePath).catch(()=>{});
+    }
 });            headless: true, // "true" para servidor
             args: [
                 '--no-sandbox', 
