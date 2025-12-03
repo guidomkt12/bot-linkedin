@@ -1,6 +1,6 @@
 {
-  "name": "linkedin-bot-api",
-  "version": "15.0.0",
+  "name": "super-social-bot",
+  "version": "1.0.0",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
