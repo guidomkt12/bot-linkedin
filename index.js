@@ -13,11 +13,13 @@ const app = express();
 const PORT = process.env.PORT || 80;
 const upload = multer({ dest: '/tmp/uploads/' });
 
-const server = app.listen(PORT, () => console.log(`Bot V28 (Híbrido Imagem V26 + Texto V27) rodando na porta ${PORT} 🧬`));
+// Log de início
+const server = app.listen(PORT, () => console.log(`Bot V29 (Frankenstein) rodando na porta ${PORT} 🧟`));
 server.setTimeout(600000);
 
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// Aumenta limite de JSON para não travar com Base64
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
 async function downloadImage(url) {
     const tempPath = path.resolve('/tmp', `img_${Date.now()}.jpg`);
@@ -30,7 +32,7 @@ async function downloadImage(url) {
     });
 }
 
-app.get('/', (req, res) => res.send('Bot V28 Online 🧬'));
+app.get('/', (req, res) => res.send('Bot V29 Online 🧟'));
 
 app.post('/publicar', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -39,21 +41,23 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
     let imagePath = req.file ? req.file.path : null;
     let browser = null;
     let page = null;
-    const screenshots = [];
 
-    // Função Paparazzi para debug
-    const captureStep = async (p, stepName) => {
+    // Função de Print de Evidência
+    const abortWithProof = async (p, msg) => {
+        console.error(`❌ ERRO: ${msg}`);
         try {
-            const imgBuffer = await p.screenshot({ encoding: 'base64', fullPage: true });
-            screenshots.push({ step: stepName, img: `data:image/jpeg;base64,${imgBuffer}`, time: new Date().toLocaleTimeString() });
-            
-            const url = await p.url();
-            if (url.includes('login') || url.includes('signup')) throw new Error(`SESSÃO CAIU em: ${stepName}`);
-        } catch (e) { throw e; }
+            const imgBuffer = await p.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
+            res.writeHead(200, { 
+                'Content-Type': 'image/jpeg', 
+                'Content-Length': imgBuffer.length,
+                'X-Error-Msg': msg 
+            });
+            res.end(imgBuffer);
+        } catch (e) { res.status(500).json({ erro: msg }); }
     };
 
     try {
-        console.log('--- INICIANDO V28 (HÍBRIDO) ---');
+        console.log('--- INICIANDO V29 ---');
         const { texto, paginaUrl, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -66,7 +70,13 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
 
         browser = await puppeteer.launch({
             headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--window-size=1280,800', '--disable-blink-features=AutomationControlled'],
+            args: [
+                '--no-sandbox', 
+                '--disable-setuid-sandbox', 
+                '--disable-dev-shm-usage', // Vital para Docker
+                '--window-size=1280,800',
+                '--disable-blink-features=AutomationControlled'
+            ],
             defaultViewport: { width: 1280, height: 800 },
             timeout: 40000
         });
@@ -80,99 +90,81 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
         console.log(`Indo para: ${paginaUrl}`);
         await page.goto(paginaUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
         await new Promise(r => setTimeout(r, 6000));
-        await captureStep(page, '1. Chegada');
 
-        // --- GARANTIR MODAL ABERTO ---
+        // Verificação rápida de sessão
+        const title = await page.title();
+        if (title.includes('Login') || title.includes('Sign')) {
+            return await abortWithProof(page, 'Caiu no login. Troque os cookies.');
+        }
+
+        // --- ABRIR MODAL ---
         const editorSelector = '.ql-editor, div[role="textbox"]';
         if (!await page.$(editorSelector)) {
             console.log('Abrindo modal...');
             const btn = await page.$('button.share-box-feed-entry__trigger, div.share-box-feed-entry__trigger, button[aria-label="Começar publicação"]');
             if (btn) { 
                 await btn.click(); 
-                await new Promise(r => setTimeout(r, 3000));
+                await new Promise(r => setTimeout(r, 3000)); 
             } else {
-                await captureStep(page, 'ERRO: Modal não abriu');
-                throw new Error('Modal falhou.');
+                return await abortWithProof(page, 'Não achei o botão de postar.');
             }
         }
-        await captureStep(page, '2. Modal Aberto');
 
-        // --- 1. IMAGEM (ESTRATÉGIA V26 - SYNTHETIC PASTE) ---
+        // --- 1. IMAGEM (MÉTODO V26 - SYNTHETIC PASTE) ---
         if (imagePath) {
-            console.log('🧪 Iniciando Synthetic Paste da Imagem...');
+            console.log('🧪 Iniciando Synthetic Paste (Imagem)...');
             
-            // Lê a imagem em Base64
+            // Lê arquivo
             const imgBuffer = await fs.readFile(imagePath);
             const imgBase64 = imgBuffer.toString('base64');
             const mimeType = 'image/jpeg';
 
-            // Executa script de injeção de evento
-            const pasteResult = await page.evaluate(async (selector, base64, mime) => {
-                try {
-                    const target = document.querySelector(selector);
-                    if (!target) return 'Editor não encontrado';
+            // Script de injeção
+            const result = await page.evaluate(async (sel, b64, mime) => {
+                const target = document.querySelector(sel);
+                if (!target) return 'No editor';
+                
+                // Cria arquivo fake
+                const byteChars = atob(b64);
+                const byteNums = new Array(byteChars.length);
+                for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
+                const byteArray = new Uint8Array(byteNums);
+                const blob = new Blob([byteArray], { type: mime });
+                const file = new File([blob], "paste.jpg", { type: mime });
 
-                    const byteCharacters = atob(base64);
-                    const byteNumbers = new Array(byteCharacters.length);
-                    for (let i = 0; i < byteCharacters.length; i++) {
-                        byteNumbers[i] = byteCharacters.charCodeAt(i);
-                    }
-                    const byteArray = new Uint8Array(byteNumbers);
-                    const blob = new Blob([byteArray], { type: mime });
-                    const file = new File([blob], "upload.jpg", { type: mime });
-
-                    const dataTransfer = new DataTransfer();
-                    dataTransfer.items.add(file);
-
-                    const pasteEvent = new ClipboardEvent('paste', {
-                        bubbles: true,
-                        cancelable: true,
-                        clipboardData: dataTransfer
-                    });
-
-                    target.focus();
-                    target.dispatchEvent(pasteEvent);
-                    
-                    return 'SUCCESS';
-                } catch (err) { return err.toString(); }
+                // Dispara evento
+                const dt = new DataTransfer();
+                dt.items.add(file);
+                const evt = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt });
+                target.focus();
+                target.dispatchEvent(evt);
+                return 'OK';
             }, editorSelector, imgBase64, mimeType);
 
-            console.log(`Resultado Paste: ${pasteResult}`);
-            if (pasteResult !== 'SUCCESS') throw new Error('Falha no script de colar imagem.');
+            if (result !== 'OK') return await abortWithProof(page, 'Falha no script de colar imagem.');
 
-            console.log('Aguardando processamento da imagem...');
+            console.log('Aguardando preview...');
             try {
                 await page.waitForSelector('.share-creation-state__media-preview, img[alt*="Preview"]', { timeout: 60000 });
-                console.log('✅ Imagem colada com sucesso!');
-                await captureStep(page, '3. Imagem Colada');
+                console.log('✅ Imagem colada!');
             } catch (e) {
-                await captureStep(page, 'ERRO: Imagem não carregou');
-                throw new Error('Timeout imagem.');
+                return await abortWithProof(page, 'Imagem não carregou após colar.');
             }
         }
 
-        // --- 2. TEXTO (ESTRATÉGIA V27 - DOM INJECTION) ---
+        // --- 2. TEXTO (MÉTODO V27 - INJEÇÃO DOM) ---
         if (texto) {
-            console.log('📝 Injetando texto (Append Mode)...');
+            console.log('📝 Injetando texto...');
             try {
                 await page.evaluate((sel, txt) => {
                     const editor = document.querySelector(sel);
-                    // Cria parágrafo
+                    // Cria parágrafo e insere no final (append) para não apagar a imagem
                     const p = document.createElement('p');
-                    p.innerText = txt; // Texto bruto
-                    
-                    // Adiciona quebra de linha antes para garantir que não fique em cima da foto
-                    const br = document.createElement('br');
-                    editor.appendChild(br);
+                    p.innerText = txt;
                     editor.appendChild(p);
-                    
-                    // Força evento de input para o LinkedIn salvar
+                    // Avisa o React que mudou
                     editor.dispatchEvent(new Event('input', { bubbles: true }));
                 }, editorSelector, texto);
-                
-                await new Promise(r => setTimeout(r, 1000));
-                console.log('Texto injetado!');
-                await captureStep(page, '4. Texto Injetado');
             } catch(e) {
                 console.log('Erro texto: ' + e.message);
             }
@@ -180,32 +172,26 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
 
         // --- 3. PUBLICAR ---
         console.log('🚀 Publicando...');
+        await new Promise(r => setTimeout(r, 2000));
+        
         const btnPost = await page.waitForSelector('button.share-actions__primary-action');
-        
         if (await page.evaluate(el => el.disabled, btnPost)) {
-            await captureStep(page, 'ERRO: Botão Travado');
-            throw new Error('Botão desabilitado.');
+            return await abortWithProof(page, 'Botão desabilitado.');
         }
-        
+
         await btnPost.click();
         await new Promise(r => setTimeout(r, 8000));
-        await captureStep(page, '5. Finalizado');
 
-        const html = generateReport(screenshots, 'SUCESSO', 'Imagem V26 + Texto V27!');
-        res.send(html);
+        console.log('✅ SUCESSO FINAL!');
+        const finalImg = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
+        res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': finalImg.length });
+        res.end(finalImg);
 
     } catch (error) {
-        console.error(error);
-        if (page) try { await captureStep(page, 'ERRO FATAL: ' + error.message); } catch(e){}
-        const html = generateReport(screenshots, 'ERRO', error.message);
-        res.send(html);
+        if (page) await abortWithProof(page, error.message);
+        else res.status(500).json({ erro: error.message });
     } finally {
         if (browser) await browser.close();
         if (imagePath) await fs.remove(imagePath).catch(()=>{});
     }
 });
-
-function generateReport(shots, status, msg) {
-    const color = status === 'SUCESSO' ? 'green' : 'red';
-    return `<html><head><style>body{font-family:sans-serif;padding:20px;background:#eee}.card{background:#fff;padding:15px;margin-bottom:20px;border-radius:8px}h1{color:${color}}img{max-width:100%;border:1px solid #ddd;margin-top:10px}.step{font-weight:bold;font-size:1.2em}</style></head><body><h1>Relatório V28: ${status}</h1><p>${msg}</p>${shots.map(s=>`<div class="card"><div class="step">${s.step}</div><small>${s.time}</small><br><img src="${s.img}"/></div>`).join('')}</body></html>`;
-}
