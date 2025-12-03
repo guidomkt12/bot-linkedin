@@ -14,7 +14,7 @@ const app = express();
 const PORT = process.env.PORT || 80;
 const upload = multer({ dest: '/tmp/uploads/' });
 
-// Inicia servidor unificado
+// Inicia servidor
 const server = app.listen(PORT, () => console.log(`Super Bot V2 (Anti-Popups) rodando na porta ${PORT} 🧹`));
 server.setTimeout(600000); 
 
@@ -215,92 +215,4 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
 
         // --- LIMPEZA DE POPUPS (O SEGREDO) ---
         console.log('[Insta] Varrendo popups...');
-        // Procura botões com textos comuns de recusa em EN e PT
-        const popupTexts = [
-            "Not now", "Not Now", "Agora não", "Agora nao", 
-            "Cancel", "Cancelar", "Salvar informações", "Save info"
-        ];
-
-        // Tenta clicar 3 vezes seguidas caso apareçam múltiplos popups
-        for (let i = 0; i < 3; i++) {
-            const buttons = await page.$x("//button | //div[@role='button']");
-            for (const btn of buttons) {
-                const text = await page.evaluate(el => el.textContent, btn);
-                if (text && (text.includes('Not now') || text.includes('Agora não') || text.includes('Cancel') || text.includes('Cancelar'))) {
-                    console.log(`[Insta] Fechando popup: ${text}`);
-                    await btn.click();
-                    await new Promise(r => setTimeout(r, 1500));
-                }
-            }
-        }
-
-        console.log('[Insta] Procurando botão (+)...');
-        const newPostSelectors = ['svg[aria-label="New post"]', 'svg[aria-label="Nova publicação"]', 'svg[aria-label="Criar"]'];
-        let uploadBtn = null;
-        
-        // Tenta achar o botão (+)
-        for (const sel of newPostSelectors) {
-            try {
-                const el = await page.$(sel);
-                if (el) {
-                    uploadBtn = await el.evaluateHandle(el => el.closest('div[role="button"]') || el.closest('a'));
-                    break;
-                }
-            } catch(e){}
-        }
-
-        if (!uploadBtn) {
-            // Se não achou, pode ser que ainda tenha popup. Tenta clicar no meio da tela para fechar modais
-            await page.mouse.click(200, 200);
-            return await abortWithProof(page, 'Não achei botão (+) mesmo após limpar popups.');
-        }
-
-        const fileChooserPromise = page.waitForFileChooser();
-        await uploadBtn.click();
-        console.log('[Insta] Enviando arquivo...');
-        const fileChooser = await fileChooserPromise;
-        await fileChooser.accept([imagePath]);
-        await new Promise(r => setTimeout(r, 6000));
-
-        // Avançar 1
-        console.log('[Insta] Avançar 1...');
-        let nextBtn = await page.$x("//div[contains(text(), 'Next') or contains(text(), 'Avançar')]");
-        if (nextBtn.length > 0) { await nextBtn[0].click(); await new Promise(r => setTimeout(r, 3000)); } 
-        else return await abortWithProof(page, 'Botão Avançar 1 sumiu.');
-
-        // Avançar 2
-        console.log('[Insta] Avançar 2...');
-        nextBtn = await page.$x("//div[contains(text(), 'Next') or contains(text(), 'Avançar')]");
-        if (nextBtn.length > 0) { await nextBtn[0].click(); await new Promise(r => setTimeout(r, 3000)); }
-
-        // Legenda
-        if (legenda) {
-            console.log('[Insta] Legenda...');
-            try {
-                const textArea = await page.waitForSelector('textarea[aria-label="Write a caption..."], textarea[aria-label="Escreva uma legenda..."]', { timeout: 5000 });
-                await textArea.type(legenda, { delay: 50 });
-            } catch(e) {}
-        }
-
-        // Compartilhar
-        console.log('[Insta] Compartilhando...');
-        const shareBtn = await page.$x("//div[contains(text(), 'Share') or contains(text(), 'Compartilhar')]");
-        if (shareBtn.length > 0) {
-            await shareBtn[0].click();
-            await new Promise(r => setTimeout(r, 12000));
-            console.log('[Insta] SUCESSO!');
-            const finalImg = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
-            res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': finalImg.length });
-            res.end(finalImg);
-        } else {
-            return await abortWithProof(page, 'Botão Compartilhar sumiu.');
-        }
-
-    } catch (error) {
-        if (page) await abortWithProof(page, error.message);
-        else res.status(500).json({ erro: error.message });
-    } finally {
-        if (browser) await browser.close();
-        if (imagePath) await fs.remove(imagePath).catch(()=>{});
-    }
-});
+        // Procura botões com textos comuns de recusa
