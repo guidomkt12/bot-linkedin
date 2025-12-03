@@ -184,4 +184,28 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
         
         if (await page.evaluate(el => el.disabled, btnPost)) {
             await captureStep(page, 'ERRO: Botão Travado');
-            throw new Error('Botão des
+            throw new Error('Botão desabilitado.');
+        }
+        
+        await btnPost.click();
+        await new Promise(r => setTimeout(r, 8000));
+        await captureStep(page, '5. Finalizado');
+
+        const html = generateReport(screenshots, 'SUCESSO', 'Imagem V26 + Texto V27!');
+        res.send(html);
+
+    } catch (error) {
+        console.error(error);
+        if (page) try { await captureStep(page, 'ERRO FATAL: ' + error.message); } catch(e){}
+        const html = generateReport(screenshots, 'ERRO', error.message);
+        res.send(html);
+    } finally {
+        if (browser) await browser.close();
+        if (imagePath) await fs.remove(imagePath).catch(()=>{});
+    }
+});
+
+function generateReport(shots, status, msg) {
+    const color = status === 'SUCESSO' ? 'green' : 'red';
+    return `<html><head><style>body{font-family:sans-serif;padding:20px;background:#eee}.card{background:#fff;padding:15px;margin-bottom:20px;border-radius:8px}h1{color:${color}}img{max-width:100%;border:1px solid #ddd;margin-top:10px}.step{font-weight:bold;font-size:1.2em}</style></head><body><h1>Relatório V28: ${status}</h1><p>${msg}</p>${shots.map(s=>`<div class="card"><div class="step">${s.step}</div><small>${s.time}</small><br><img src="${s.img}"/></div>`).join('')}</body></html>`;
+}
