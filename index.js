@@ -103,4 +103,112 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
             const btn = await page.$('button.share-box-feed-entry__trigger, div.share-box-feed-entry__trigger, button[aria-label="Começar publicação"]');
             if (btn) { 
                 await btn.click(); 
-                await new Promise(r => setTimeout(r, 4000
+                await new Promise(r => setTimeout(r, 4000)); 
+            } else {
+                return await abortWithProof(page, 'Não achei o botão de postar.');
+            }
+        }
+
+        // --- 1. IMAGEM (MÉTODO V26 - SYNTHETIC PASTE) ---
+        if (imagePath) {
+            console.log('🧪 Colando imagem (Synthetic Paste)...');
+            
+            const imgBuffer = await fs.readFile(imagePath);
+            const imgBase64 = imgBuffer.toString('base64');
+            const mimeType = 'image/jpeg';
+
+            // Script de injeção de evento 'paste'
+            const result = await page.evaluate(async (sel, b64, mime) => {
+                const target = document.querySelector(sel);
+                if (!target) return 'No editor';
+                
+                const byteChars = atob(b64);
+                const byteNums = new Array(byteChars.length);
+                for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
+                const byteArray = new Uint8Array(byteNums);
+                const blob = new Blob([byteArray], { type: mime });
+                const file = new File([blob], "paste.jpg", { type: mime });
+
+                const dt = new DataTransfer();
+                dt.items.add(file);
+                const evt = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt });
+                target.focus();
+                target.dispatchEvent(evt);
+                return 'OK';
+            }, editorSelector, imgBase64, mimeType);
+
+            if (result !== 'OK') return await abortWithProof(page, 'Falha no script de colar imagem.');
+
+            console.log('Aguardando processamento da imagem (Preview)...');
+            // VERIFICAÇÃO RESTAURADA: Espera o preview aparecer de verdade
+            try {
+                await page.waitForSelector('.share-creation-state__media-preview, img[alt*="Preview"], div[data-test-media-viewer]', { timeout: 60000 });
+                console.log('✅ Imagem processada e visível no editor!');
+                // Pausa extra para o DOM assentar
+                await new Promise(r => setTimeout(r, 2000));
+            } catch (e) {
+                return await abortWithProof(page, 'ERRO: A imagem foi colada, mas o preview não apareceu (LinkedIn bloqueou?).');
+            }
+        }
+
+        // --- 2. TEXTO FORMATADO (MÉTODO V31 - DOM INJECTION) ---
+        if (texto) {
+            console.log('📝 Injetando texto formatado abaixo da imagem...');
+            try {
+                await page.evaluate((sel, txt) => {
+                    const editor = document.querySelector(sel);
+                    
+                    // Divide o texto por quebra de linha
+                    const lines = txt.split(/\r?\n/);
+
+                    lines.forEach(line => {
+                        const p = document.createElement('p');
+                        // Se linha vazia, usa <br> para espaçamento visual
+                        if (!line.trim()) {
+                            p.innerHTML = '<br>';
+                        } else {
+                            p.innerText = line;
+                        }
+                        // Adiciona no FINAL do editor (abaixo da imagem que já está lá)
+                        editor.appendChild(p);
+                    });
+
+                    // Força atualização do editor
+                    editor.dispatchEvent(new Event('input', { bubbles: true }));
+                }, editorSelector, texto);
+                console.log('Texto injetado.');
+            } catch(e) {
+                console.log('Erro na injeção de texto: ' + e.message);
+                // Não aborta se o texto falhar, tenta postar a imagem
+            }
+        }
+
+        // --- 3. PUBLICAR ---
+        console.log('🚀 Publicando...');
+        await new Promise(r => setTimeout(r, 3000));
+        
+        const btnPost = await page.waitForSelector('button.share-actions__primary-action');
+        
+        // Verifica se está habilitado
+        const isDisabled = await page.evaluate(el => el.disabled, btnPost);
+        if (isDisabled) {
+             return await abortWithProof(page, 'Botão Publicar está desabilitado (Algo deu errado no conteúdo).');
+        }
+
+        await btnPost.click();
+        // Espera longa para upload e confirmação
+        await new Promise(r => setTimeout(r, 10000));
+
+        console.log('✅ SUCESSO V32 (COMBO COMPLETO)!');
+        const finalImg = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
+        res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': finalImg.length });
+        res.end(finalImg);
+
+    } catch (error) {
+        if (page) await abortWithProof(page, error.message);
+        else res.status(500).json({ erro: error.message });
+    } finally {
+        if (browser) await browser.close();
+        if (imagePath) await fs.remove(imagePath).catch(()=>{});
+    }
+});
