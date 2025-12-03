@@ -13,7 +13,7 @@ const app = express();
 const PORT = process.env.PORT || 80;
 const upload = multer({ dest: '/tmp/uploads/' });
 
-const server = app.listen(PORT, () => console.log(`Bot V17 (Direto no Modal) rodando na porta ${PORT} ⚡`));
+const server = app.listen(PORT, () => console.log(`Bot V18 (Blind Mode) rodando na porta ${PORT} ⚡`));
 server.setTimeout(600000);
 
 app.use(express.json({ limit: '50mb' }));
@@ -30,8 +30,8 @@ async function downloadImage(url) {
     });
 }
 
-// Rota para ver se está vivo
-app.get('/', (req, res) => res.send('Bot V17 Online 🎯'));
+// Rota de Teste
+app.get('/', (req, res) => res.send('Bot V18 Online (Sem Verificações) 🚀'));
 
 app.post('/publicar', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -41,7 +41,7 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
     let browser = null;
     let page = null;
 
-    // Função de Print de Evidência
+    // Função de Print
     const sendEvidence = async (p, headerMsg) => {
         try {
             const imgBuffer = await p.screenshot({ type: 'jpeg', quality: 70, fullPage: true });
@@ -51,15 +51,13 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
                 'X-Status-Msg': headerMsg
             });
             res.end(imgBuffer);
-        } catch (e) {
-            res.status(500).json({ erro: 'Falha ao gerar imagem.' });
-        }
+        } catch (e) { res.status(500).json({ erro: 'Falha print' }); }
     };
 
     try {
-        console.log('--- INICIANDO V17 (DIRETO NO MODAL) ---');
+        console.log('--- V18: MODO CEGO ---');
         const { texto, paginaUrl, cookies, imagemUrl } = req.body;
-
+        
         // 1. Download
         if (!imagePath && imagemUrl) {
             try { imagePath = await downloadImage(imagemUrl); } catch (e) {}
@@ -68,14 +66,14 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
         const cookiesEnv = process.env.LINKEDIN_COOKIES;
         const cookiesFinal = cookies || cookiesEnv;
 
-        if (!cookiesFinal) throw new Error('Cookies obrigatórios.');
+        if (!cookiesFinal) throw new Error('Preciso de Cookies.');
 
         // 2. Navegador
         browser = await puppeteer.launch({
             headless: true,
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--window-size=1280,800', '--disable-blink-features=AutomationControlled'],
             defaultViewport: { width: 1280, height: 800 },
-            timeout: 30000
+            timeout: 0
         });
 
         page = await browser.newPage();
@@ -86,98 +84,71 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
         if (Array.isArray(cookiesJson)) await page.setCookie(...cookiesJson);
 
         // 4. Navegação
-        console.log(`Indo para: ${paginaUrl}`);
-        // Timeout maior caso a página demore
+        console.log(`Indo para URL (Assumindo modal aberto): ${paginaUrl}`);
         await page.goto(paginaUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
         
-        // Verifica queda de sessão
-        const urlNow = await page.url();
-        if (urlNow.includes('login') || urlNow.includes('signup')) {
-            console.log('Caiu no login.');
-            await sendEvidence(page, 'ERRO_LOGIN_DETECTADO');
-            return;
-        }
+        // ESPERA FIXA - SEM VERIFICAÇÃO
+        console.log('Esperando 8 segundos para garantir carregamento...');
+        await new Promise(r => setTimeout(r, 8000));
 
-        await new Promise(r => setTimeout(r, 5000));
-
-        // 5. CHECAGEM INTELIGENTE: O modal já está aberto?
-        console.log('Verificando se o modal já está na tela...');
-        let modalOpen = false;
-        
-        // Procura pela caixa de texto ou pelo container do modal
-        try {
-            // Tenta achar direto a caixa de texto
-            await page.waitForSelector('.ql-editor, div[role="textbox"]', { timeout: 5000 });
-            console.log('Modal JÁ ABERTO detectado! Pulando clique.');
-            modalOpen = true;
-        } catch (e) {
-            console.log('Modal não detectado de imediato. Tentando clicar no botão...');
-        }
-
-        // Se não estiver aberto, clica no botão (Fallback)
-        if (!modalOpen) {
-            const selectors = ['button.share-box-feed-entry__trigger', 'div.share-box-feed-entry__trigger', 'button[aria-label="Começar publicação"]'];
-            for (const sel of selectors) {
-                const el = await page.$(sel);
-                if (el) { await el.click(); modalOpen = true; break; }
-            }
-            if (modalOpen) await new Promise(r => setTimeout(r, 3000));
-        }
-
-        // Tenta focar no editor de novo
-        if (modalOpen) {
-            try {
-                await page.waitForSelector('.ql-editor, div[role="textbox"]', { timeout: 10000 });
-            } catch(e) {
-                console.log('Não achei a caixa de texto. Enviando print do que estou vendo.');
-                await sendEvidence(page, 'ERRO_NAO_ACHEI_CAIXA_TEXTO');
-                return;
-            }
-        } else {
-             await sendEvidence(page, 'ERRO_MODAL_NAO_ABRIU');
-             return;
-        }
-
-        // 6. UPLOAD
+        // 5. UPLOAD FORÇADO (Sem esperar botão aparecer)
         if (imagePath) {
-            console.log('Upload...');
-            // Tenta clicar no botão de imagem se ele estiver visível
-            const imgBtn = await page.$('button[aria-label="Adicionar mídia"], button[aria-label="Add media"]');
-            if (imgBtn) await imgBtn.click();
-            await new Promise(r => setTimeout(r, 1000));
-
-            const input = await page.waitForSelector('input[type="file"]', { timeout: 10000 });
-            await input.uploadFile(imagePath);
-            // Espera preview
-            await page.waitForSelector('.share-creation-state__media-preview, img[alt*="Preview"]', { timeout: 90000 });
-            console.log('Imagem OK.');
+            console.log('Forçando upload no input oculto...');
+            try {
+                // O LinkedIn sempre tem um input type=file, mesmo escondido. Vamos injetar nele.
+                const input = await page.$('input[type="file"]');
+                if (input) {
+                    await input.uploadFile(imagePath);
+                    console.log('Arquivo injetado. Esperando 10s pelo processamento...');
+                    await new Promise(r => setTimeout(r, 10000));
+                } else {
+                    console.log('Input de arquivo não encontrado no DOM.');
+                }
+            } catch (e) {
+                console.log('Erro no upload cego: ' + e.message);
+            }
         }
 
-        // 7. TEXTO
+        // 6. TEXTO FORÇADO
         if (texto) {
-            console.log('Escrevendo...');
-            const editor = await page.waitForSelector('.ql-editor, div[role="textbox"]');
-            await editor.click();
+            console.log('Digitando texto às cegas...');
+            try {
+                // Tenta focar na div de texto
+                await page.click('div[role="textbox"]'); 
+            } catch(e) {
+                console.log('Não consegui clicar na caixa, tentando TAB...');
+                await page.keyboard.press('Tab');
+                await page.keyboard.press('Tab');
+            }
+            
+            await new Promise(r => setTimeout(r, 1000));
             await page.keyboard.type(texto, { delay: 10 });
         }
 
-        // 8. PUBLICAR
-        console.log('Publicando...');
-        const btnPost = await page.waitForSelector('button.share-actions__primary-action');
+        // 7. PUBLICAR
+        console.log('Procurando botão Publicar...');
+        await new Promise(r => setTimeout(r, 2000));
         
-        // Verifica se habilitado
-        const disabled = await page.evaluate(el => el.disabled, btnPost);
-        if (disabled) await new Promise(r => setTimeout(r, 3000));
+        try {
+            // Tenta clicar no botão principal
+            const btnPost = await page.waitForSelector('button.share-actions__primary-action', { timeout: 5000 });
+            await btnPost.click();
+            console.log('Cliquei em publicar.');
+        } catch (e) {
+            console.log('Botão publicar não achado. Enviando print.');
+            await sendEvidence(page, 'ERRO_BOTAO_PUBLICAR');
+            return;
+        }
 
-        await btnPost.click();
-        await new Promise(r => setTimeout(r, 8000));
-
-        console.log('SUCESSO!');
-        await sendEvidence(page, 'SUCESSO_POSTADO');
+        // Espera confirmar
+        await new Promise(r => setTimeout(r, 5000));
+        
+        console.log('SUCESSO (Assumido)');
+        await sendEvidence(page, 'SUCESSO_FINAL');
 
     } catch (error) {
         console.error('ERRO:', error.message);
-        if (page) await sendEvidence(page, 'ERRO_GERAL_' + error.message);
+        if (page) await sendEvidence(page, 'ERRO_FATAL_' + error.message);
         else res.status(500).json({ erro: error.message });
     } finally {
         if (browser) await browser.close();
