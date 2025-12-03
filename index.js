@@ -13,11 +13,9 @@ const app = express();
 const PORT = process.env.PORT || 80;
 const upload = multer({ dest: '/tmp/uploads/' });
 
-// Log de início
-const server = app.listen(PORT, () => console.log(`Bot V32 (Combo Perfeito + Verificação) rodando na porta ${PORT} 🛡️`));
+const server = app.listen(PORT, () => console.log(`Bot V33 (V26 Original + Texto) rodando na porta ${PORT} 🛠️`));
 server.setTimeout(600000);
 
-// Aumenta limite para aguentar imagens grandes em base64
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
@@ -32,7 +30,7 @@ async function downloadImage(url) {
     });
 }
 
-app.get('/', (req, res) => res.send('Bot V32 Online 🛡️'));
+app.get('/', (req, res) => res.send('Bot V33 Online 🛠️'));
 
 app.post('/publicar', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -42,22 +40,17 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
     let browser = null;
     let page = null;
 
-    // Função de Print de Evidência (ESSENCIAL PARA DEBUG)
     const abortWithProof = async (p, msg) => {
         console.error(`❌ ERRO: ${msg}`);
         try {
             const imgBuffer = await p.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
-            res.writeHead(200, { 
-                'Content-Type': 'image/jpeg', 
-                'Content-Length': imgBuffer.length,
-                'X-Error-Msg': msg 
-            });
+            res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': imgBuffer.length, 'X-Error-Msg': msg });
             res.end(imgBuffer);
         } catch (e) { res.status(500).json({ erro: msg }); }
     };
 
     try {
-        console.log('--- INICIANDO V32 ---');
+        console.log('--- INICIANDO V33 (VOLTA AO V26) ---');
         const { texto, paginaUrl, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -70,15 +63,9 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
 
         browser = await puppeteer.launch({
             headless: true,
-            args: [
-                '--no-sandbox', 
-                '--disable-setuid-sandbox', 
-                '--disable-dev-shm-usage', 
-                '--window-size=1280,800',
-                '--disable-blink-features=AutomationControlled'
-            ],
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--window-size=1280,800', '--disable-blink-features=AutomationControlled'],
             defaultViewport: { width: 1280, height: 800 },
-            timeout: 60000 // Timeout geral maior
+            timeout: 40000
         });
 
         page = await browser.newPage();
@@ -92,9 +79,7 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
         await new Promise(r => setTimeout(r, 6000));
 
         const title = await page.title();
-        if (title.includes('Login') || title.includes('Sign')) {
-            return await abortWithProof(page, 'Caiu no login. Troque os cookies.');
-        }
+        if (title.includes('Login') || title.includes('Sign')) return await abortWithProof(page, 'Caiu no login.');
 
         // --- ABRIR MODAL ---
         const editorSelector = '.ql-editor, div[role="textbox"]';
@@ -105,19 +90,23 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
                 await btn.click(); 
                 await new Promise(r => setTimeout(r, 4000)); 
             } else {
-                return await abortWithProof(page, 'Não achei o botão de postar.');
+                // Se não achou botão, tenta seguir se o editor já estiver lá
+                if (!await page.$(editorSelector)) return await abortWithProof(page, 'Não achei o botão de postar.');
             }
         }
 
         // --- 1. IMAGEM (MÉTODO V26 - SYNTHETIC PASTE) ---
         if (imagePath) {
-            console.log('🧪 Colando imagem (Synthetic Paste)...');
+            console.log('🧪 V26: Colando imagem...');
             
             const imgBuffer = await fs.readFile(imagePath);
             const imgBase64 = imgBuffer.toString('base64');
             const mimeType = 'image/jpeg';
 
-            // Script de injeção de evento 'paste'
+            // Garante foco antes de colar
+            await page.click(editorSelector);
+            await new Promise(r => setTimeout(r, 500));
+
             const result = await page.evaluate(async (sel, b64, mime) => {
                 const target = document.querySelector(sel);
                 if (!target) return 'No editor';
@@ -132,83 +121,39 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
                 const dt = new DataTransfer();
                 dt.items.add(file);
                 const evt = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt });
+                
                 target.focus();
                 target.dispatchEvent(evt);
                 return 'OK';
             }, editorSelector, imgBase64, mimeType);
 
-            if (result !== 'OK') return await abortWithProof(page, 'Falha no script de colar imagem.');
+            if (result !== 'OK') console.log('Aviso: Script de imagem retornou ' + result);
 
-            console.log('Aguardando processamento da imagem (Preview)...');
-            // VERIFICAÇÃO RESTAURADA: Espera o preview aparecer de verdade
-            try {
-                await page.waitForSelector('.share-creation-state__media-preview, img[alt*="Preview"], div[data-test-media-viewer]', { timeout: 60000 });
-                console.log('✅ Imagem processada e visível no editor!');
-                // Pausa extra para o DOM assentar
-                await new Promise(r => setTimeout(r, 2000));
-            } catch (e) {
-                return await abortWithProof(page, 'ERRO: A imagem foi colada, mas o preview não apareceu (LinkedIn bloqueou?).');
-            }
+            console.log('Esperando 10s (CEGO) para imagem processar...');
+            // SEM VERIFICAÇÃO DE PREVIEW QUE TRAVA O BOT
+            await new Promise(r => setTimeout(r, 10000));
         }
 
-        // --- 2. TEXTO FORMATADO (MÉTODO V31 - DOM INJECTION) ---
+        // --- 2. TEXTO (COLAR / INSERT) ---
         if (texto) {
-            console.log('📝 Injetando texto formatado abaixo da imagem...');
+            console.log('📝 Inserindo texto...');
             try {
-                await page.evaluate((sel, txt) => {
-                    const editor = document.querySelector(sel);
-                    
-                    // Divide o texto por quebra de linha
-                    const lines = txt.split(/\r?\n/);
-
-                    lines.forEach(line => {
-                        const p = document.createElement('p');
-                        // Se linha vazia, usa <br> para espaçamento visual
-                        if (!line.trim()) {
-                            p.innerHTML = '<br>';
-                        } else {
-                            p.innerText = line;
-                        }
-                        // Adiciona no FINAL do editor (abaixo da imagem que já está lá)
-                        editor.appendChild(p);
-                    });
-
-                    // Força atualização do editor
-                    editor.dispatchEvent(new Event('input', { bubbles: true }));
-                }, editorSelector, texto);
-                console.log('Texto injetado.');
+                // Clica no editor novamente para garantir foco
+                await page.click(editorSelector);
+                
+                // Pula uma linha (Enter) para garantir que não escreva em cima da imagem selecionada
+                await page.keyboard.press('Enter'); 
+                
+                // Usa execCommand para simular "Colar Texto"
+                await page.evaluate((txt) => {
+                    document.execCommand('insertText', false, txt);
+                }, texto);
+                
             } catch(e) {
-                console.log('Erro na injeção de texto: ' + e.message);
-                // Não aborta se o texto falhar, tenta postar a imagem
+                console.log('Erro texto: ' + e.message);
             }
         }
 
         // --- 3. PUBLICAR ---
         console.log('🚀 Publicando...');
-        await new Promise(r => setTimeout(r, 3000));
-        
-        const btnPost = await page.waitForSelector('button.share-actions__primary-action');
-        
-        // Verifica se está habilitado
-        const isDisabled = await page.evaluate(el => el.disabled, btnPost);
-        if (isDisabled) {
-             return await abortWithProof(page, 'Botão Publicar está desabilitado (Algo deu errado no conteúdo).');
-        }
-
-        await btnPost.click();
-        // Espera longa para upload e confirmação
-        await new Promise(r => setTimeout(r, 10000));
-
-        console.log('✅ SUCESSO V32 (COMBO COMPLETO)!');
-        const finalImg = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
-        res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': finalImg.length });
-        res.end(finalImg);
-
-    } catch (error) {
-        if (page) await abortWithProof(page, error.message);
-        else res.status(500).json({ erro: error.message });
-    } finally {
-        if (browser) await browser.close();
-        if (imagePath) await fs.remove(imagePath).catch(()=>{});
-    }
-});
+        await new Promise(r =>
