@@ -13,7 +13,8 @@ const app = express();
 const PORT = process.env.PORT || 80;
 const upload = multer({ dest: '/tmp/uploads/' });
 
-const server = app.listen(PORT, () => console.log(`Bot V30 (Trust Mode) rodando na porta ${PORT} 🚀`));
+// Log de Vitória
+const server = app.listen(PORT, () => console.log(`Bot V31 (Formatador Elegante) rodando na porta ${PORT} 🎩`));
 server.setTimeout(600000);
 
 app.use(express.json({ limit: '100mb' }));
@@ -30,7 +31,7 @@ async function downloadImage(url) {
     });
 }
 
-app.get('/', (req, res) => res.send('Bot V30 Online 🟢'));
+app.get('/', (req, res) => res.send('Bot V31 Online 🎩'));
 
 app.post('/publicar', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -50,7 +51,7 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
     };
 
     try {
-        console.log('--- INICIANDO V30 ---');
+        console.log('--- INICIANDO V31 (FORMATAÇÃO) ---');
         const { texto, paginaUrl, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -63,7 +64,13 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
 
         browser = await puppeteer.launch({
             headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--window-size=1280,800', '--disable-blink-features=AutomationControlled'],
+            args: [
+                '--no-sandbox', 
+                '--disable-setuid-sandbox', 
+                '--disable-dev-shm-usage',
+                '--window-size=1280,800',
+                '--disable-blink-features=AutomationControlled'
+            ],
             defaultViewport: { width: 1280, height: 800 },
             timeout: 40000
         });
@@ -78,7 +85,6 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
         await page.goto(paginaUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
         await new Promise(r => setTimeout(r, 6000));
 
-        // Checagem rápida
         const title = await page.title();
         if (title.includes('Login') || title.includes('Sign')) return await abortWithProof(page, 'Caiu no login.');
 
@@ -95,10 +101,9 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
             }
         }
 
-        // --- 1. IMAGEM (SYNTHETIC PASTE) ---
+        // --- 1. IMAGEM (V26 - SYNTHETIC PASTE) ---
         if (imagePath) {
-            console.log('🧪 Colando imagem (Método V26)...');
-            
+            console.log('🧪 Colando imagem...');
             const imgBuffer = await fs.readFile(imagePath);
             const imgBase64 = imgBuffer.toString('base64');
             const mimeType = 'image/jpeg';
@@ -124,23 +129,36 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
 
             if (result !== 'OK') return await abortWithProof(page, 'Falha script imagem.');
 
-            console.log('Imagem colada! Esperando 10s (sem verificar)...');
-            // MUDANÇA: Espera cega de 10 segundos. Não aborta se não achar preview.
+            console.log('Aguardando preview...');
+            // Espera cega de 10s (Trust Mode)
             await new Promise(r => setTimeout(r, 10000));
         }
 
-        // --- 2. TEXTO (INJEÇÃO DOM) ---
+        // --- 2. TEXTO FORMATADO (V31 - SMART INJECTION) ---
         if (texto) {
-            console.log('📝 Injetando texto...');
+            console.log('📝 Injetando texto formatado...');
             try {
                 await page.evaluate((sel, txt) => {
                     const editor = document.querySelector(sel);
-                    // Adiciona quebra de linha e o texto no final
-                    const br = document.createElement('br');
-                    const p = document.createElement('p');
-                    p.innerText = txt;
-                    editor.appendChild(br);
-                    editor.appendChild(p);
+                    
+                    // Divide o texto onde tiver quebra de linha (\n)
+                    // Aceita tanto \n quanto \r\n (Windows)
+                    const lines = txt.split(/\r?\n/);
+
+                    lines.forEach(line => {
+                        const p = document.createElement('p');
+                        
+                        // Se a linha for vazia, coloca um <br> para dar o espaço visual
+                        if (!line.trim()) {
+                            p.innerHTML = '<br>';
+                        } else {
+                            p.innerText = line;
+                        }
+                        
+                        editor.appendChild(p);
+                    });
+
+                    // Força atualização
                     editor.dispatchEvent(new Event('input', { bubbles: true }));
                 }, editorSelector, texto);
             } catch(e) {
@@ -150,21 +168,17 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
 
         // --- 3. PUBLICAR ---
         console.log('🚀 Publicando...');
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise(r => setTimeout(r, 2000));
         
         const btnPost = await page.waitForSelector('button.share-actions__primary-action');
-        
-        // Verifica se está habilitado, mas tenta clicar mesmo assim
-        const isDisabled = await page.evaluate(el => el.disabled, btnPost);
-        if (isDisabled) {
-            console.log('Botão parece desabilitado, esperando mais 5s...');
-            await new Promise(r => setTimeout(r, 5000));
+        if (await page.evaluate(el => el.disabled, btnPost)) {
+            return await abortWithProof(page, 'Botão desabilitado.');
         }
 
         await btnPost.click();
         await new Promise(r => setTimeout(r, 8000));
 
-        console.log('✅ SUCESSO V30!');
+        console.log('✅ SUCESSO ABSOLUTO!');
         const finalImg = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
         res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': finalImg.length });
         res.end(finalImg);
