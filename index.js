@@ -13,7 +13,7 @@ const app = express();
 const PORT = process.env.PORT || 80;
 const upload = multer({ dest: '/tmp/uploads/' });
 
-const server = app.listen(PORT, () => console.log(`Bot V22 (Full Clipboard) rodando na porta ${PORT} 📋`));
+const server = app.listen(PORT, () => console.log(`Bot V23 (Injeção Direta) rodando na porta ${PORT} 💉`));
 server.setTimeout(600000);
 
 app.use(express.json({ limit: '50mb' }));
@@ -31,8 +31,7 @@ async function downloadImage(url) {
     });
 }
 
-// Rota de Teste
-app.get('/', (req, res) => res.send('Bot V22 Online 📋'));
+app.get('/', (req, res) => res.send('Bot V23 Online 💉'));
 
 app.post('/publicar', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -57,7 +56,7 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
     };
 
     try {
-        console.log('--- V22: TUDO NO CTRL+V ---');
+        console.log('--- V23: INJEÇÃO DIRETA DE ARQUIVO ---');
         const { texto, paginaUrl, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -70,23 +69,10 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
 
         browser = await puppeteer.launch({
             headless: true,
-            args: [
-                '--no-sandbox', 
-                '--disable-setuid-sandbox',
-                '--window-size=1280,800',
-                '--disable-blink-features=AutomationControlled',
-                '--enable-features=ClipboardAPI,ClipboardAPIAsync' // Habilita API de Clipboard
-            ],
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--window-size=1280,800', '--disable-blink-features=AutomationControlled'],
             defaultViewport: { width: 1280, height: 800 },
             timeout: 40000
         });
-
-        // Permissões de Clipboard são CRUCIAIS
-        const context = browser.defaultBrowserContext();
-        // Tenta dar permissão para o domínio do LinkedIn
-        try {
-            await context.overridePermissions('https://www.linkedin.com', ['clipboard-read', 'clipboard-write', 'clipboard-sanitized-write']);
-        } catch (e) { console.log('Aviso permissão:', e.message); }
 
         page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
@@ -110,53 +96,44 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
         
         try { await checkSession(page); } catch(e) { return await abortWithProof(page, 'Desconectado no modal.'); }
 
-        // --- COLAR IMAGEM (A MÁGICA) ---
+        // --- UPLOAD VIA INJEÇÃO DIRETA (SEM CLICAR EM ÍCONES) ---
         if (imagePath) {
-            console.log('📋 Convertendo imagem para Clipboard...');
+            console.log('💉 Procurando input de arquivo escondido...');
+            // Tenta encontrar qualquer input do tipo file na página
+            const fileInput = await page.$('input[type="file"]');
             
-            // Lê o arquivo do disco para Base64
-            const imgBuffer = await fs.readFile(imagePath);
-            const imgBase64 = `data:image/jpeg;base64,${imgBuffer.toString('base64')}`;
-
-            // Foca no editor ANTES de mexer na area de transferencia
-            await page.click(editorSelector);
-            await new Promise(r => setTimeout(r, 1000));
-
-            // Executa script DENTRO do navegador para escrever no Clipboard do Chrome
-            await page.evaluate(async (base64Data) => {
-                const res = await fetch(base64Data);
-                const blob = await res.blob();
-                // Escreve o blob da imagem na área de transferência
-                await navigator.clipboard.write([
-                    new ClipboardItem({ [blob.type]: blob })
-                ]);
-            }, imgBase64);
-
-            console.log('📋 Imagem copiada! Executando Ctrl+V...');
-            
-            // Simula Ctrl+V físico
-            await page.keyboard.down('Control');
-            await page.keyboard.press('V');
-            await page.keyboard.up('Control');
-
-            // Espera o LinkedIn processar a colagem
-            console.log('Aguardando processamento da imagem...');
-            try {
-                await page.waitForSelector('.share-creation-state__media-preview, img[alt*="Preview"]', { timeout: 60000 });
-                console.log('✅ Imagem colada com sucesso!');
-            } catch (e) {
-                return await abortWithProof(page, 'Imagem não apareceu após Ctrl+V.');
+            if (fileInput) {
+                console.log('💉 Input encontrado! Injetando arquivo à força...');
+                // Força o upload do arquivo diretamente no elemento, ignorando a UI
+                await fileInput.uploadFile(imagePath);
+                
+                console.log('Aguardando processamento do preview...');
+                // Espera o LinkedIn reagir à injeção
+                try {
+                    await page.waitForSelector('.share-creation-state__media-preview, img[alt*="Preview"]', { timeout: 60000 });
+                    console.log('✅ Imagem injetada e processada!');
+                } catch (e) {
+                    // Se falhar, tenta um truque: disparar um evento de 'change' no input
+                    console.log('Preview não apareceu. Forçando evento "change"...');
+                    await page.evaluate(input => input.dispatchEvent(new Event('change', { bubbles: true })), fileInput);
+                    try {
+                        await page.waitForSelector('.share-creation-state__media-preview, img[alt*="Preview"]', { timeout: 30000 });
+                         console.log('✅ Imagem processada após forçar evento!');
+                    } catch(e2) {
+                         return await abortWithProof(page, 'Injeção falhou: LinkedIn ignorou o arquivo.');
+                    }
+                }
+            } else {
+                return await abortWithProof(page, 'Não encontrei o input de arquivo escondido na página.');
             }
         }
 
-        // --- COLAR TEXTO ---
+        // --- TEXTO (COLAR) ---
         if (texto) {
             console.log('📝 Colando texto...');
             try {
-                // Limpa seleção ou pula linha se já tiver imagem
                 await page.click(editorSelector);
-                
-                // Cola texto usando execCommand (mais seguro que Ctrl+V para texto misto)
+                await new Promise(r => setTimeout(r, 500));
                 await page.evaluate((txt) => document.execCommand('insertText', false, txt), texto);
             } catch(e) {}
         }
@@ -166,14 +143,14 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
         await new Promise(r => setTimeout(r, 3000));
         const btnPost = await page.waitForSelector('button.share-actions__primary-action');
         
-        if (await page.evaluate(el => el.disabled, btnPost)) return await abortWithProof(page, 'Botão desabilitado.');
+        if (await page.evaluate(el => el.disabled, btnPost)) return await abortWithProof(page, 'Botão desabilitado (Upload deve ter falhado).');
         
         await btnPost.click();
         await new Promise(r => setTimeout(r, 5000));
 
         try { await checkSession(page); } catch(e) { return await abortWithProof(page, 'Desconectado ao publicar.'); }
 
-        console.log('✅ SUCESSO V22!');
+        console.log('✅ SUCESSO V23!');
         const finalImg = await page.screenshot({ type: 'jpeg', quality: 70, fullPage: true });
         res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': finalImg.length });
         res.end(finalImg);
