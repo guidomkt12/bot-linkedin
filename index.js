@@ -13,7 +13,7 @@ const app = express();
 const PORT = process.env.PORT || 80;
 const upload = multer({ dest: '/tmp/uploads/' });
 
-const server = app.listen(PORT, () => console.log(`Bot V11 (Cirúrgico) rodando na porta ${PORT}`));
+const server = app.listen(PORT, () => console.log(`Bot V12 (Camuflagem Extrema) rodando na porta ${PORT}`));
 server.setTimeout(600000);
 
 // Função de Download
@@ -31,7 +31,7 @@ async function downloadImage(url) {
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-app.get('/', (req, res) => res.send('Bot V11 Online 🎯'));
+app.get('/', (req, res) => res.send('Bot V12 Online 🥷'));
 
 app.post('/publicar', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -42,10 +42,10 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
     let page = null;
 
     try {
-        console.log('--- TENTATIVA V11 (Foco no Dashboard) ---');
+        console.log('--- TENTATIVA V12 (Camuflagem) ---');
         const { texto, paginaUrl, cookies, imagemUrl } = req.body;
         
-        // 1. Download Imagem
+        // Download Imagem
         if (!imagePath && imagemUrl) {
             try {
                 console.log('Baixando imagem...');
@@ -56,60 +56,64 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
         const cookiesEnv = process.env.LINKEDIN_COOKIES;
         const cookiesFinal = cookies || cookiesEnv;
 
-        if (!cookiesFinal) throw new Error('Cookies obrigatórios.');
+        if (!cookiesFinal) throw new Error('Cookies obrigatórios. (Pegue novos, os antigos morreram!)');
 
-        // 2. Navegador
+        // Lança Navegador com argumentos para parecer humano
         browser = await puppeteer.launch({
-            headless: true, // headless: false se quiser ver rodando localmente
+            headless: true, // "true" para servidor
             args: [
                 '--no-sandbox', 
                 '--disable-setuid-sandbox', 
                 '--window-size=1920,1080',
-                '--disable-blink-features=AutomationControlled' // Esconde que é robô
+                '--disable-blink-features=AutomationControlled', // ESCONDE O ROBÔ
+                '--disable-infobars',
+                '--start-maximized'
             ],
             defaultViewport: { width: 1920, height: 1080 },
             timeout: 0,
-            userDataDir: '/tmp/session_v11' // Nova pasta de sessão
+            ignoreDefaultArgs: ['--enable-automation'] // Remove barra de "Chrome controlado por automação"
         });
 
         page = await browser.newPage();
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        
+        // TRUQUE 1: User Agent de Windows 10 Real
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
 
-        // 3. Cookies
+        // TRUQUE 2: Remove a propriedade webdriver via script antes da página carregar
+        await page.evaluateOnNewDocument(() => {
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined,
+            });
+        });
+
+        // Injetando cookies
         console.log('Injetando cookies...');
         try {
             const cookiesJson = typeof cookiesFinal === 'string' ? JSON.parse(cookiesFinal) : cookiesFinal;
             if (Array.isArray(cookiesJson)) await page.setCookie(...cookiesJson);
         } catch (e) { console.log('Erro cookies:', e.message); }
 
-        // 4. Navegação
+        // Navegação
         console.log(`Indo para: ${paginaUrl}`);
         await page.goto(paginaUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-        await new Promise(r => setTimeout(r, 6000));
+        await new Promise(r => setTimeout(r, 8000)); // Espera longa para não assustar o site
 
-        // VERIFICAÇÃO DE SEGURANÇA
+        // VERIFICAÇÃO DE QUEDA DE SESSÃO
         const title = await page.title();
         console.log(`Estamos em: ${title}`);
-        if (title.includes('Login') || title.includes('Sign')) throw new Error('Caiu no Login. Renove os Cookies.');
-
-        // 5. CLIQUE CIRÚRGICO
-        console.log('Procurando a caixa de postagem...');
         
-        // Seletores específicos da HOME da empresa (não da aba de posts)
-        // O LinkedIn tem um botão "Start a post" que é um button.share-box-feed-entry__trigger
-        const postBoxSelectors = [
-            'button.share-box-feed-entry__trigger', // Padrão
-            'div.share-box-feed-entry__trigger',    // Variação
-            'button[aria-label="Start a post"]',    // Acessibilidade EN
-            'button[aria-label="Começar publicação"]', // Acessibilidade PT
-            'div.share-box-feed-entry__top-bar'     // Clica na barra inteira
-        ];
+        if (title.includes('Login') || title.includes('Sign') || title.includes('Challenge') || title.includes('Security')) {
+            throw new Error(`SESSÃO CAIU! O LinkedIn bloqueou o acesso. Título: ${title}. Você precisa pegar cookies novos e tentar de novo.`);
+        }
 
+        // --- LÓGICA DE CLIQUE (Mantida da V11 pois funciona) ---
+        console.log('Procurando a caixa de postagem...');
+        const postBoxSelectors = ['button.share-box-feed-entry__trigger', 'div.share-box-feed-entry__trigger', 'button[aria-label="Começar publicação"]', 'button[aria-label="Start a post"]'];
+        
         let found = false;
         for (const sel of postBoxSelectors) {
             const el = await page.$(sel);
             if (el) {
-                console.log(`Clicando no seletor: ${sel}`);
                 await el.click();
                 found = true;
                 break;
@@ -117,12 +121,10 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
         }
 
         if (!found) {
-            console.log('Seletores falharam. Tentando forçar abertura do modal via Texto...');
-            // Procura SOMENTE botões visíveis no meio da tela, ignorando topo
+            // Fallback Texto
             const buttons = await page.$$('button, div[role="button"]');
             for (const btn of buttons) {
                 const text = await page.evaluate(el => el.textContent, btn);
-                // Evita clicar em "Criar Evento" ou "Escrever Artigo"
                 if (text && (text.includes('Começar publicação') || text.includes('Start a post'))) {
                     await btn.click();
                     found = true;
@@ -131,57 +133,52 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
             }
         }
 
-        if (!found) throw new Error(`Não achei a caixa de postar. Print salvo.`);
+        if (!found) throw new Error('Não achei a caixa de postar. A sessão pode ter caído silenciosamente.');
 
-        // Espera modal abrir
-        await page.waitForSelector('div[role="dialog"], .share-creation-state', { timeout: 10000 });
+        // Espera modal
+        await page.waitForSelector('div[role="dialog"]', { timeout: 15000 });
         console.log('Modal aberto!');
 
-        // 6. UPLOAD
+        // UPLOAD
         if (imagePath) {
             console.log('Upload Imagem...');
-            // Às vezes precisa clicar no ícone de imagem primeiro dentro do modal
             const imageBtn = await page.$('button[aria-label="Adicionar mídia"], button[aria-label="Add media"]');
             if (imageBtn) await imageBtn.click();
-            await new Promise(r => setTimeout(r, 1000));
+            await new Promise(r => setTimeout(r, 2000));
 
-            const input = await page.waitForSelector('input[type="file"]', { timeout: 10000 });
+            const input = await page.waitForSelector('input[type="file"]', { timeout: 15000 });
             await input.uploadFile(imagePath);
             
             // Espera preview
-            await page.waitForSelector('.share-creation-state__media-preview, img[alt*="Preview"]', { timeout: 90000 });
+            await page.waitForSelector('.share-creation-state__media-preview, img[alt*="Preview"]', { timeout: 120000 });
             console.log('Imagem carregada.');
-            await new Promise(r => setTimeout(r, 2000));
+            await new Promise(r => setTimeout(r, 3000));
         }
 
-        // 7. TEXTO
+        // TEXTO
         if (texto) {
             console.log('Escrevendo...');
             const editor = await page.waitForSelector('.ql-editor, div[role="textbox"]');
             await editor.click();
-            await page.keyboard.type(texto, { delay: 10 });
+            await page.keyboard.type(texto, { delay: 30 }); // Digitação humana lenta
         }
 
-        // 8. PUBLICAR
+        // PUBLICAR
         console.log('Publicando...');
         const btnPost = await page.waitForSelector('button.share-actions__primary-action');
-        
-        // Checa se está habilitado
-        const isDisabled = await page.evaluate(el => el.disabled, btnPost);
-        if (isDisabled) await new Promise(r => setTimeout(r, 5000)); // Espera se estiver cinza
-
+        await new Promise(r => setTimeout(r, 3000)); // Pausa dramática antes de clicar
         await btnPost.click();
         await new Promise(r => setTimeout(r, 10000));
 
         console.log('SUCESSO!');
-        res.json({ status: 'sucesso', mensagem: 'Postado V11!' });
+        res.json({ status: 'sucesso', mensagem: 'Postado V12 Camuflado!' });
 
     } catch (error) {
         console.error('ERRO:', error.message);
         if (page) {
             try {
-                await page.screenshot({ path: '/tmp/erro_v11.png', fullPage: true });
-                res.sendFile('/tmp/erro_v11.png');
+                await page.screenshot({ path: '/tmp/erro_v12.png', fullPage: true });
+                res.sendFile('/tmp/erro_v12.png');
             } catch (e) { res.status(500).json({ erro: error.message }); }
         } else {
             res.status(500).json({ erro: error.message });
