@@ -1,6 +1,6 @@
 {
   "name": "linkedin-bot-api",
-  "version": "12.0.0",
+  "version": "13.0.0",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
