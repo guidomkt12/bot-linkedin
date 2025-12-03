@@ -13,13 +13,12 @@ const app = express();
 const PORT = process.env.PORT || 80;
 const upload = multer({ dest: '/tmp/uploads/' });
 
-const server = app.listen(PORT, () => console.log(`Bot V23 (Injeção Direta) rodando na porta ${PORT} 💉`));
+const server = app.listen(PORT, () => console.log(`Bot V24 (Texto Primeiro) rodando na porta ${PORT} ⚡`));
 server.setTimeout(600000);
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Função Download
 async function downloadImage(url) {
     const tempPath = path.resolve('/tmp', `img_${Date.now()}.jpg`);
     const writer = fs.createWriteStream(tempPath);
@@ -31,7 +30,7 @@ async function downloadImage(url) {
     });
 }
 
-app.get('/', (req, res) => res.send('Bot V23 Online 💉'));
+app.get('/', (req, res) => res.send('Bot V24 Online 📝'));
 
 app.post('/publicar', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -56,7 +55,7 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
     };
 
     try {
-        console.log('--- V23: INJEÇÃO DIRETA DE ARQUIVO ---');
+        console.log('--- INICIANDO V24 (TEXTO PRIMEIRO) ---');
         const { texto, paginaUrl, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -81,76 +80,118 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
         if (Array.isArray(cookiesJson)) await page.setCookie(...cookiesJson);
 
         console.log(`Indo para: ${paginaUrl}`);
+        // Timeout longo para garantir carregamento
         await page.goto(paginaUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
         await new Promise(r => setTimeout(r, 6000));
 
         try { await checkSession(page); } catch(e) { return await abortWithProof(page, 'Desconectado ao entrar.'); }
 
-        // Garantir Modal Aberto
+        // --- GARANTIR MODAL (Estratégia Redundante) ---
+        console.log('Verificando modal...');
         const editorSelector = '.ql-editor, div[role="textbox"]';
-        if (!await page.$(editorSelector)) {
-            console.log('Abrindo modal...');
-            const btn = await page.$('button.share-box-feed-entry__trigger, div.share-box-feed-entry__trigger, button[aria-label="Começar publicação"]');
-            if (btn) { await btn.click(); await new Promise(r => setTimeout(r, 3000)); }
-        }
         
-        try { await checkSession(page); } catch(e) { return await abortWithProof(page, 'Desconectado no modal.'); }
-
-        // --- UPLOAD VIA INJEÇÃO DIRETA (SEM CLICAR EM ÍCONES) ---
-        if (imagePath) {
-            console.log('💉 Procurando input de arquivo escondido...');
-            // Tenta encontrar qualquer input do tipo file na página
-            const fileInput = await page.$('input[type="file"]');
-            
-            if (fileInput) {
-                console.log('💉 Input encontrado! Injetando arquivo à força...');
-                // Força o upload do arquivo diretamente no elemento, ignorando a UI
-                await fileInput.uploadFile(imagePath);
-                
-                console.log('Aguardando processamento do preview...');
-                // Espera o LinkedIn reagir à injeção
-                try {
-                    await page.waitForSelector('.share-creation-state__media-preview, img[alt*="Preview"]', { timeout: 60000 });
-                    console.log('✅ Imagem injetada e processada!');
-                } catch (e) {
-                    // Se falhar, tenta um truque: disparar um evento de 'change' no input
-                    console.log('Preview não apareceu. Forçando evento "change"...');
-                    await page.evaluate(input => input.dispatchEvent(new Event('change', { bubbles: true })), fileInput);
-                    try {
-                        await page.waitForSelector('.share-creation-state__media-preview, img[alt*="Preview"]', { timeout: 30000 });
-                         console.log('✅ Imagem processada após forçar evento!');
-                    } catch(e2) {
-                         return await abortWithProof(page, 'Injeção falhou: LinkedIn ignorou o arquivo.');
-                    }
-                }
+        // Se não achar o editor, tenta clicar no botão de abrir
+        if (!await page.$(editorSelector)) {
+            console.log('Editor não visível. Clicando no botão...');
+            const btn = await page.$('button.share-box-feed-entry__trigger, div.share-box-feed-entry__trigger, button[aria-label="Começar publicação"]');
+            if (btn) { 
+                await btn.click(); 
+                await new Promise(r => setTimeout(r, 3000));
             } else {
-                return await abortWithProof(page, 'Não encontrei o input de arquivo escondido na página.');
+                return await abortWithProof(page, 'Não achei botão nem editor.');
             }
         }
 
-        // --- TEXTO (COLAR) ---
+        try { await checkSession(page); } catch(e) { return await abortWithProof(page, 'Desconectado no modal.'); }
+
+        // --- 1. INJETAR TEXTO (PRIORIDADE) ---
         if (texto) {
-            console.log('📝 Colando texto...');
+            console.log('📝 Injetando texto via DOM...');
             try {
-                await page.click(editorSelector);
+                // Foca na caixa primeiro
+                await page.click(editorSelector).catch(() => {});
                 await new Promise(r => setTimeout(r, 500));
-                await page.evaluate((txt) => document.execCommand('insertText', false, txt), texto);
-            } catch(e) {}
+
+                // MÉTODO INFALÍVEL: Injeta o HTML direto no elemento
+                // Isso ignora qualquer bloqueio de teclado/cola
+                await page.evaluate((sel, txt) => {
+                    const el = document.querySelector(sel);
+                    if (el) {
+                        el.innerHTML = `<p>${txt}</p>`; // Formato que o LinkedIn aceita
+                        el.dispatchEvent(new Event('input', { bubbles: true })); // Avisa que mudou
+                    } else {
+                        throw new Error('Elemento de texto sumiu.');
+                    }
+                }, editorSelector, texto);
+                
+                console.log('📝 Texto injetado.');
+                await new Promise(r => setTimeout(r, 1000)); // Espera LinkedIn reconhecer
+            } catch(e) {
+                console.log('Erro na injeção de texto: ' + e.message);
+                return await abortWithProof(page, 'Falha ao escrever texto.');
+            }
         }
 
-        // --- PUBLICAR ---
+        // --- 2. UPLOAD (Agora que o texto já está lá) ---
+        if (imagePath) {
+            console.log('📸 Tentando upload...');
+            try {
+                // Tenta achar qualquer input file
+                let fileInput = await page.$('input[type="file"]');
+                
+                // Se não achar, tenta clicar no botão de imagem para gerar o input
+                if (!fileInput) {
+                    console.log('Input invisível. Clicando no ícone de imagem...');
+                    const imgBtn = await page.$('button[aria-label="Adicionar mídia"], button[aria-label="Add media"]');
+                    if (imgBtn) {
+                        await imgBtn.click();
+                        await new Promise(r => setTimeout(r, 1000));
+                        fileInput = await page.$('input[type="file"]');
+                    }
+                }
+
+                if (fileInput) {
+                    // TRUQUE: Torna o input visível à força para garantir que o Puppeteer consiga interagir
+                    await page.evaluate((el) => {
+                        el.style.display = 'block';
+                        el.style.visibility = 'visible';
+                        el.style.position = 'fixed';
+                        el.style.zIndex = '9999';
+                        el.style.top = '0';
+                        el.style.left = '0';
+                    }, fileInput);
+
+                    console.log('Enviando arquivo...');
+                    await fileInput.uploadFile(imagePath);
+                    
+                    // Espera preview
+                    await page.waitForSelector('.share-creation-state__media-preview, img[alt*="Preview"]', { timeout: 45000 });
+                    console.log('📸 Imagem carregada!');
+                } else {
+                    console.log('Input de arquivo não encontrado de jeito nenhum.');
+                    // Não aborta, tenta postar só o texto
+                }
+            } catch (e) {
+                console.log('Erro no upload (Seguindo só com texto): ' + e.message);
+            }
+        }
+
+        try { await checkSession(page); } catch(e) { return await abortWithProof(page, 'Desconectado antes de publicar.'); }
+
+        // --- 3. PUBLICAR ---
         console.log('🚀 Publicando...');
-        await new Promise(r => setTimeout(r, 3000));
         const btnPost = await page.waitForSelector('button.share-actions__primary-action');
         
-        if (await page.evaluate(el => el.disabled, btnPost)) return await abortWithProof(page, 'Botão desabilitado (Upload deve ter falhado).');
-        
+        // Verifica se habilitado
+        const disabled = await page.evaluate(el => el.disabled, btnPost);
+        if (disabled) return await abortWithProof(page, 'Botão publicar bloqueado (LinkedIn não validou o texto/foto).');
+
         await btnPost.click();
-        await new Promise(r => setTimeout(r, 5000));
+        await new Promise(r => setTimeout(r, 8000));
 
-        try { await checkSession(page); } catch(e) { return await abortWithProof(page, 'Desconectado ao publicar.'); }
+        try { await checkSession(page); } catch(e) { return await abortWithProof(page, 'Caiu ao finalizar.'); }
 
-        console.log('✅ SUCESSO V23!');
+        console.log('✅ SUCESSO V24!');
         const finalImg = await page.screenshot({ type: 'jpeg', quality: 70, fullPage: true });
         res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': finalImg.length });
         res.end(finalImg);
