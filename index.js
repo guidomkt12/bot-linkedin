@@ -1,5 +1,4 @@
 const express = require('express');
-// Importa o Puppeteer com Stealth
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
@@ -12,15 +11,13 @@ require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 80;
-
 const upload = multer({ dest: '/tmp/uploads/' });
-const server = app.listen(PORT, () => console.log(`Bot V9 (Stealth & Human) rodando na porta ${PORT}`));
+
+// Aumenta timeouts globais
+const server = app.listen(PORT, () => console.log(`Bot V10 (Debug Visual) rodando na porta ${PORT}`));
 server.setTimeout(600000);
 
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-
-// Função para baixar imagem
+// Função de download (mantida)
 async function downloadImage(url) {
     const tempPath = path.resolve('/tmp', `img_${Date.now()}.jpg`);
     const writer = fs.createWriteStream(tempPath);
@@ -32,12 +29,13 @@ async function downloadImage(url) {
     });
 }
 
-// Função para pausas aleatórias (Humanização)
-const humanDelay = (min = 1000, max = 3000) => new Promise(r => setTimeout(r, Math.random() * (max - min) + min));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-app.get('/', (req, res) => res.send('Bot LinkedIn V9 (Stealth Mode) 🥷'));
+app.get('/', (req, res) => res.send('Bot V10 Online 🟢'));
 
 app.post('/publicar', upload.single('imagem'), async (req, res) => {
+    // Configura timeout de resposta para 10 minutos
     req.setTimeout(600000);
     res.setTimeout(600000);
 
@@ -46,149 +44,154 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
     let page = null;
 
     try {
-        console.log('--- REQUISIÇÃO STEALTH ---');
-        const { texto, paginaUrl, email, senha, cookies, imagemUrl } = req.body;
+        console.log('--- NOVA TENTATIVA (V10) ---');
+        const { texto, paginaUrl, cookies, imagemUrl } = req.body;
         
-        // 1. Baixar imagem se vier URL
+        // Prioridade: URL > Arquivo
         if (!imagePath && imagemUrl) {
             try {
                 console.log('Baixando imagem...');
                 imagePath = await downloadImage(imagemUrl);
-            } catch (e) { console.error('Erro download img:', e.message); }
+            } catch (e) { console.error('Erro download:', e.message); }
         }
 
         const cookiesEnv = process.env.LINKEDIN_COOKIES;
         const cookiesFinal = cookies || cookiesEnv;
 
-        if (!cookiesFinal && (!email || !senha)) throw new Error('Preciso de Cookies ou Login.');
+        if (!cookiesFinal) throw new Error('ERRO: É obrigatório enviar COOKIES atualizados.');
 
-        // 2. Lançar Navegador com Argumentos Anti-Detecção
+        // Lança navegador com perfil temporário persistente
         browser = await puppeteer.launch({
-            headless: true, // Mude para false se testar no PC
+            headless: true,
             args: [
                 '--no-sandbox', 
                 '--disable-setuid-sandbox', 
-                '--disable-dev-shm-usage',
-                '--window-size=1366,768', // Tamanho de tela de notebook comum
-                '--disable-blink-features=AutomationControlled' // Oculta flag de automação
+                '--window-size=1920,1080',
+                '--disable-blink-features=AutomationControlled'
             ],
-            defaultViewport: { width: 1366, height: 768 },
-            timeout: 0
+            defaultViewport: { width: 1920, height: 1080 },
+            timeout: 0,
+            userDataDir: '/tmp/chrome-session' // Tenta manter cache da sessão
         });
 
         page = await browser.newPage();
-        
-        // Simula um User Agent real de Windows
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
-        // --- LOGIN INTELIGENTE ---
-        let loggedIn = false;
-        if (cookiesFinal) {
-            console.log('🍪 Injetando Cookies...');
-            try {
-                const cookiesJson = typeof cookiesFinal === 'string' ? JSON.parse(cookiesFinal) : cookiesFinal;
-                if (Array.isArray(cookiesJson)) await page.setCookie(...cookiesJson);
-                loggedIn = true;
-            } catch (e) { console.log('Erro cookies, tentando senha...'); }
-        }
+        // --- INJETAR COOKIES ---
+        console.log('Injetando cookies...');
+        try {
+            const cookiesJson = typeof cookiesFinal === 'string' ? JSON.parse(cookiesFinal) : cookiesFinal;
+            if (Array.isArray(cookiesJson)) {
+                await page.setCookie(...cookiesJson);
+            }
+        } catch (e) { console.error('Erro cookies:', e.message); }
 
-        // Se não tiver cookies, tenta login manual (mas com delay humano)
-        if (!loggedIn && email && senha) {
-            console.log('Logando com senha (Cuidado)...');
-            await page.goto('https://www.linkedin.com/login', { waitUntil: 'networkidle2' });
-            await humanDelay(1000, 3000);
-            await page.type('#username', email, { delay: 100 }); // Digitação lenta
-            await humanDelay(500, 1000);
-            await page.type('#password', senha, { delay: 100 });
-            await humanDelay(500, 1500);
-            await page.click('[type="submit"]');
-            await page.waitForNavigation().catch(()=>{});
-        }
-
-        // --- IR PARA O PAINEL ---
-        console.log(`Indo para admin: ${paginaUrl}`);
-        await page.goto(paginaUrl, { waitUntil: 'domcontentloaded' });
-        await humanDelay(5000, 8000); // Espera carregar como um humano lendo a tela
-
-        // --- ENCONTRAR BOTÃO ---
-        console.log('Procurando botão...');
-        const texts = ['Começar', 'Start', 'Criar', 'Publicar', 'Create', 'Write'];
+        // --- NAVEGAÇÃO ---
+        console.log(`Indo para: ${paginaUrl}`);
         
-        // Tenta achar botão pelo texto
-        const buttons = await page.$$('button, div[role="button"], span');
+        // Tenta ir direto. Se falhar, tira print.
+        await page.goto(paginaUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await new Promise(r => setTimeout(r, 5000));
+
+        // VERIFICAÇÃO CRÍTICA: Onde estamos?
+        const title = await page.title();
+        console.log(`Título da página atual: ${title}`);
+
+        // Se caiu no login ou feed, avisa
+        if (title.includes('Login') || title.includes('Sign In') || title.includes('Feed')) {
+            // Se cair no Feed, tenta ir pro admin de novo
+            if (title.includes('Feed')) {
+                console.log('Caiu no Feed pessoal. Redirecionando para Admin...');
+                await page.goto(paginaUrl, { waitUntil: 'domcontentloaded' });
+                await new Promise(r => setTimeout(r, 5000));
+            } else {
+                throw new Error(`Sessão caiu. Título: ${title}. Renove os cookies.`);
+            }
+        }
+
+        // --- BUSCA BOTÃO (Simplificada) ---
+        console.log('Procurando botão de postar...');
+        
+        // Lista de seletores conhecidos do LinkedIn Admin
+        const selectors = [
+            'button.share-box-feed-entry__trigger',
+            'div.share-box-feed-entry__trigger',
+            'button.share-box__open',
+            'button[aria-label="Começar publicação"]',
+            'button[aria-label="Start a post"]'
+        ];
+
         let found = false;
-        
-        for (const btn of buttons) {
-            const t = await page.evaluate(el => el.textContent, btn);
-            if (t && texts.some(x => t.trim().includes(x))) {
-                // Move o mouse para o botão antes de clicar (Humanização)
-                try {
-                    await btn.hover();
-                    await humanDelay(500, 1000);
-                } catch(e){}
-                
-                await btn.click();
+        for (const sel of selectors) {
+            const el = await page.$(sel);
+            if (el) {
+                console.log(`Botão encontrado via: ${sel}`);
+                await el.click();
                 found = true;
                 break;
             }
         }
-        
+
+        // Se não achou por seletor, tenta texto bruto (último recurso)
         if (!found) {
-            const btn = await page.$('button.share-box-feed-entry__trigger, button.share-box__open');
-            if (btn) { await btn.click(); found = true; }
+            console.log('Seletores falharam. Varrendo textos...');
+            const buttons = await page.$$('button, div[role="button"]');
+            for (const btn of buttons) {
+                const t = await page.evaluate(el => el.textContent, btn);
+                if (t && (t.includes('Começar') || t.includes('Start') || t.includes('Criar'))) {
+                    await btn.click();
+                    found = true;
+                    break;
+                }
+            }
         }
 
-        if (!found) throw new Error('Não achei o botão de postar. Sessão pode ter caído.');
+        if (!found) {
+            throw new Error(`BOTÃO NÃO LOCALIZADO. Título: ${await page.title()}`);
+        }
 
-        await humanDelay(2000, 4000);
+        await new Promise(r => setTimeout(r, 3000));
 
-        // --- UPLOAD DA IMAGEM ---
+        // --- UPLOAD ---
         if (imagePath) {
-            console.log('📸 Upload da imagem...');
-            const input = await page.waitForSelector('input[type="file"]', { timeout: 30000 }).catch(()=>null);
-            
+            console.log('Upload imagem...');
+            const input = await page.waitForSelector('input[type="file"]', { timeout: 10000 }).catch(()=>null);
             if (input) {
                 await input.uploadFile(imagePath);
-                // Espera preview
-                try {
-                    await page.waitForSelector('.share-creation-state__media-preview, img[alt*="Preview"]', { timeout: 60000 });
-                    console.log('Imagem carregada.');
-                } catch(e) { console.log('Aviso: Preview demorou.'); }
-                await humanDelay(2000, 4000);
+                // Espera preview aparecer (aumentei timeout)
+                await page.waitForSelector('.share-creation-state__media-preview, img[alt*="Preview"]', { timeout: 60000 }).catch(()=>console.log('Preview demorou...'));
+                await new Promise(r => setTimeout(r, 3000));
             }
         }
 
         // --- TEXTO ---
         if (texto) {
-            console.log('Digitando texto...');
             const editor = await page.waitForSelector('.ql-editor, div[role="textbox"]');
             await editor.click();
-            await humanDelay(500, 1000);
-            await page.keyboard.type(texto, { delay: 30 }); // Digitação humana
+            await page.keyboard.type(texto, { delay: 10 });
         }
 
         // --- PUBLICAR ---
-        console.log('Publicando...');
-        await humanDelay(2000, 4000);
         const btnPost = await page.waitForSelector('button.share-actions__primary-action');
-        
-        // Verifica se está habilitado
-        const isDisabled = await page.evaluate(el => el.disabled, btnPost);
-        if (isDisabled) await humanDelay(2000, 5000); // Espera mais um pouco
-
         await btnPost.click();
-        await humanDelay(5000, 10000); // Espera post ser enviado
+        await new Promise(r => setTimeout(r, 5000));
 
         console.log('SUCESSO!');
-        res.json({ status: 'sucesso', mensagem: 'Postado em modo Stealth!' });
+        res.json({ status: 'sucesso', mensagem: 'Postado V10!' });
 
     } catch (error) {
-        console.error('ERRO:', error.message);
+        console.error('ERRO FATAL:', error.message);
+        
+        // --- GERA PRINT DO ERRO ---
         if (page) {
             try {
-                await page.screenshot({ path: '/tmp/erro_stealth.png' });
-                res.sendFile('/tmp/erro_stealth.png');
-            } catch (e) { res.status(500).json({ erro: error.message }); }
+                const erroPath = '/tmp/erro_v10.png';
+                await page.screenshot({ path: erroPath, fullPage: true });
+                console.log('Print de erro gerado. Enviando...');
+                res.sendFile(erroPath); // Manda a imagem do erro pro n8n
+            } catch (e) {
+                res.status(500).json({ erro: error.message, erro_print: 'Falha ao gerar print' });
+            }
         } else {
             res.status(500).json({ erro: error.message });
         }
