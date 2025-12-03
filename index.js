@@ -141,3 +141,39 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
                     p.innerText = txt;
                     editor.appendChild(br);
                     editor.appendChild(p);
+                    editor.dispatchEvent(new Event('input', { bubbles: true }));
+                }, editorSelector, texto);
+            } catch(e) {
+                console.log('Erro texto: ' + e.message);
+            }
+        }
+
+        // --- 3. PUBLICAR ---
+        console.log('🚀 Publicando...');
+        await new Promise(r => setTimeout(r, 3000));
+        
+        const btnPost = await page.waitForSelector('button.share-actions__primary-action');
+        
+        // Verifica se está habilitado, mas tenta clicar mesmo assim
+        const isDisabled = await page.evaluate(el => el.disabled, btnPost);
+        if (isDisabled) {
+            console.log('Botão parece desabilitado, esperando mais 5s...');
+            await new Promise(r => setTimeout(r, 5000));
+        }
+
+        await btnPost.click();
+        await new Promise(r => setTimeout(r, 8000));
+
+        console.log('✅ SUCESSO V30!');
+        const finalImg = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
+        res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': finalImg.length });
+        res.end(finalImg);
+
+    } catch (error) {
+        if (page) await abortWithProof(page, error.message);
+        else res.status(500).json({ erro: error.message });
+    } finally {
+        if (browser) await browser.close();
+        if (imagePath) await fs.remove(imagePath).catch(()=>{});
+    }
+});
