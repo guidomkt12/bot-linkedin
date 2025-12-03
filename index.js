@@ -13,7 +13,7 @@ const app = express();
 const PORT = process.env.PORT || 80;
 const upload = multer({ dest: '/tmp/uploads/' });
 
-const server = app.listen(PORT, () => console.log(`Bot V20 (Upload Moderno) rodando na porta ${PORT} ⚡`));
+const server = app.listen(PORT, () => console.log(`Bot V22 (Full Clipboard) rodando na porta ${PORT} 📋`));
 server.setTimeout(600000);
 
 app.use(express.json({ limit: '50mb' }));
@@ -32,7 +32,7 @@ async function downloadImage(url) {
 }
 
 // Rota de Teste
-app.get('/', (req, res) => res.send('Bot V20 Online 🖼️'));
+app.get('/', (req, res) => res.send('Bot V22 Online 📋'));
 
 app.post('/publicar', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -42,7 +42,6 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
     let browser = null;
     let page = null;
 
-    // Função abortar com print
     const abortWithProof = async (p, msg) => {
         console.error(`❌ ERRO: ${msg}`);
         try {
@@ -52,14 +51,13 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
         } catch (e) { res.status(500).json({ erro: msg }); }
     };
 
-    // Checar sessão
     const checkSession = async (p) => {
         const url = await p.url();
         if (url.includes('login') || url.includes('signup')) throw new Error('SESSÃO CAIU.');
     };
 
     try {
-        console.log('--- INICIANDO V20 (UPLOAD MODERNO + COLAR TEXTO) ---');
+        console.log('--- V22: TUDO NO CTRL+V ---');
         const { texto, paginaUrl, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -72,10 +70,23 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
 
         browser = await puppeteer.launch({
             headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--window-size=1280,800', '--disable-blink-features=AutomationControlled'],
+            args: [
+                '--no-sandbox', 
+                '--disable-setuid-sandbox',
+                '--window-size=1280,800',
+                '--disable-blink-features=AutomationControlled',
+                '--enable-features=ClipboardAPI,ClipboardAPIAsync' // Habilita API de Clipboard
+            ],
             defaultViewport: { width: 1280, height: 800 },
             timeout: 40000
         });
+
+        // Permissões de Clipboard são CRUCIAIS
+        const context = browser.defaultBrowserContext();
+        // Tenta dar permissão para o domínio do LinkedIn
+        try {
+            await context.overridePermissions('https://www.linkedin.com', ['clipboard-read', 'clipboard-write', 'clipboard-sanitized-write']);
+        } catch (e) { console.log('Aviso permissão:', e.message); }
 
         page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
@@ -85,94 +96,87 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
 
         console.log(`Indo para: ${paginaUrl}`);
         await page.goto(paginaUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-        await new Promise(r => setTimeout(r, 5000));
+        await new Promise(r => setTimeout(r, 6000));
 
         try { await checkSession(page); } catch(e) { return await abortWithProof(page, 'Desconectado ao entrar.'); }
 
         // Garantir Modal Aberto
         const editorSelector = '.ql-editor, div[role="textbox"]';
         if (!await page.$(editorSelector)) {
-            console.log('Modal fechado. Clicando para abrir...');
+            console.log('Abrindo modal...');
             const btn = await page.$('button.share-box-feed-entry__trigger, div.share-box-feed-entry__trigger, button[aria-label="Começar publicação"]');
             if (btn) { await btn.click(); await new Promise(r => setTimeout(r, 3000)); }
         }
-        try { await checkSession(page); } catch(e) { return await abortWithProof(page, 'Desconectado ao abrir modal.'); }
+        
+        try { await checkSession(page); } catch(e) { return await abortWithProof(page, 'Desconectado no modal.'); }
 
-        // --- UPLOAD V20 (O INTERCEPTADOR) ---
+        // --- COLAR IMAGEM (A MÁGICA) ---
         if (imagePath) {
-            console.log('📸 UPLOAD V20: Preparando...');
+            console.log('📋 Convertendo imagem para Clipboard...');
             
-            // 1. Prepara o interceptador de arquivos
-            const fileChooserPromise = page.waitForFileChooser({ timeout: 15000 });
-            
-            // 2. Clica no botão de imagem (ícone)
-            const iconSelectors = [
-                'button[aria-label="Adicionar mídia"]', 
-                'button[aria-label="Add media"]',
-                'svg[data-test-icon="image-medium"]', // Ícone direto
-                'button.share-promoted-detour-button' // Botão genérico de mídia
-            ];
-            
-            let clickedIcon = false;
-            for (const sel of iconSelectors) {
-                const el = await page.$(sel);
-                // Verifica se o botão está visível e dentro do modal
-                if (el && await el.boundingBox()) {
-                    console.log(`Clicando no ícone de imagem: ${sel}`);
-                    await el.click();
-                    clickedIcon = true;
-                    break;
-                }
-            }
+            // Lê o arquivo do disco para Base64
+            const imgBuffer = await fs.readFile(imagePath);
+            const imgBase64 = `data:image/jpeg;base64,${imgBuffer.toString('base64')}`;
 
-            if (!clickedIcon) {
-                // Tenta clicar por coordenadas no canto inferior esquerdo do modal (último recurso)
-                console.log('Ícones falharam. Tentando clique genérico na área de mídia...');
-                try { await page.mouse.click(300, 500); } catch(e) {}
-            }
+            // Foca no editor ANTES de mexer na area de transferencia
+            await page.click(editorSelector);
+            await new Promise(r => setTimeout(r, 1000));
 
+            // Executa script DENTRO do navegador para escrever no Clipboard do Chrome
+            await page.evaluate(async (base64Data) => {
+                const res = await fetch(base64Data);
+                const blob = await res.blob();
+                // Escreve o blob da imagem na área de transferência
+                await navigator.clipboard.write([
+                    new ClipboardItem({ [blob.type]: blob })
+                ]);
+            }, imgBase64);
+
+            console.log('📋 Imagem copiada! Executando Ctrl+V...');
+            
+            // Simula Ctrl+V físico
+            await page.keyboard.down('Control');
+            await page.keyboard.press('V');
+            await page.keyboard.up('Control');
+
+            // Espera o LinkedIn processar a colagem
+            console.log('Aguardando processamento da imagem...');
             try {
-                // 3. Espera o interceptador pegar o diálogo
-                console.log('Aguardando diálogo de arquivo...');
-                const fileChooser = await fileChooserPromise;
-                console.log('Diálogo interceptado! Enviando imagem...');
-                // 4. Entrega a imagem
-                await fileChooser.accept([imagePath]);
-                
-                // 5. Espera preview
                 await page.waitForSelector('.share-creation-state__media-preview, img[alt*="Preview"]', { timeout: 60000 });
-                console.log('📸 UPLOAD: Sucesso! Preview carregado.');
+                console.log('✅ Imagem colada com sucesso!');
             } catch (e) {
-                return await abortWithProof(page, 'Falha no Upload V20: ' + e.message);
+                return await abortWithProof(page, 'Imagem não apareceu após Ctrl+V.');
             }
         }
 
-        try { await checkSession(page); } catch(e) { return await abortWithProof(page, 'Desconectado após upload.'); }
-
-        // --- TEXTO (COLAR) ---
+        // --- COLAR TEXTO ---
         if (texto) {
-            console.log('📝 TEXTO: Colando...');
+            console.log('📝 Colando texto...');
             try {
+                // Limpa seleção ou pula linha se já tiver imagem
                 await page.click(editorSelector);
-                await new Promise(r => setTimeout(r, 500));
+                
+                // Cola texto usando execCommand (mais seguro que Ctrl+V para texto misto)
                 await page.evaluate((txt) => document.execCommand('insertText', false, txt), texto);
-            } catch(e) { console.log('Erro ao colar: ' + e.message); }
+            } catch(e) {}
         }
 
         // --- PUBLICAR ---
-        console.log('🚀 PUBLICAR...');
-        await new Promise(r => setTimeout(r, 2000));
+        console.log('🚀 Publicando...');
+        await new Promise(r => setTimeout(r, 3000));
         const btnPost = await page.waitForSelector('button.share-actions__primary-action');
-        if (await page.evaluate(el => el.disabled, btnPost)) return await abortWithProof(page, 'Botão publicar desabilitado.');
+        
+        if (await page.evaluate(el => el.disabled, btnPost)) return await abortWithProof(page, 'Botão desabilitado.');
+        
         await btnPost.click();
         await new Promise(r => setTimeout(r, 5000));
 
         try { await checkSession(page); } catch(e) { return await abortWithProof(page, 'Desconectado ao publicar.'); }
 
-        console.log('✅ SUCESSO V20!');
-        const imgBuffer = await page.screenshot({ type: 'jpeg', quality: 70, fullPage: true });
-        res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': imgBuffer.length });
-        res.end(imgBuffer);
+        console.log('✅ SUCESSO V22!');
+        const finalImg = await page.screenshot({ type: 'jpeg', quality: 70, fullPage: true });
+        res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': finalImg.length });
+        res.end(finalImg);
 
     } catch (error) {
         if (page) await abortWithProof(page, error.message);
