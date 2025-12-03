@@ -13,7 +13,7 @@ const app = express();
 const PORT = process.env.PORT || 80;
 const upload = multer({ dest: '/tmp/uploads/' });
 
-const server = app.listen(PORT, () => console.log(`Bot V24 (Fixed Build) rodando na porta ${PORT} ⚡`));
+const server = app.listen(PORT, () => console.log(`Bot V26 (Synthetic Paste) rodando na porta ${PORT} 🧪`));
 server.setTimeout(600000);
 
 app.use(express.json({ limit: '50mb' }));
@@ -30,7 +30,7 @@ async function downloadImage(url) {
     });
 }
 
-app.get('/', (req, res) => res.send('Bot V24 Online 🟢'));
+app.get('/', (req, res) => res.send('Bot V26 Online 🧪'));
 
 app.post('/publicar', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -49,14 +49,8 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
         } catch (e) { res.status(500).json({ erro: msg }); }
     };
 
-    const checkSession = async (p) => {
-        const url = await p.url();
-        const title = await p.title();
-        if (url.includes('login') || url.includes('signup') || title.includes('Entrar')) throw new Error('SESSÃO CAIU.');
-    };
-
     try {
-        console.log('--- INICIANDO V24 ---');
+        console.log('--- V26: SYNTHETIC PASTE EVENT ---');
         const { texto, paginaUrl, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -84,77 +78,107 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
         await page.goto(paginaUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
         await new Promise(r => setTimeout(r, 6000));
 
-        try { await checkSession(page); } catch(e) { return await abortWithProof(page, 'Desconectado ao entrar.'); }
+        // Checagem Inicial
+        const title = await page.title();
+        if (title.includes('Login') || title.includes('Sign')) return await abortWithProof(page, 'Caiu no login ao entrar.');
 
-        // --- ABRIR MODAL ---
-        console.log('Verificando modal...');
+        // --- GARANTIR MODAL ABERTO ---
         const editorSelector = '.ql-editor, div[role="textbox"]';
-        
         if (!await page.$(editorSelector)) {
             console.log('Abrindo modal...');
             const btn = await page.$('button.share-box-feed-entry__trigger, div.share-box-feed-entry__trigger, button[aria-label="Começar publicação"]');
-            if (btn) { 
-                await btn.click(); 
-                await new Promise(r => setTimeout(r, 3000));
-            } else {
-                // Tenta forçar via URL se falhar
-                return await abortWithProof(page, 'Não achei botão nem editor.');
+            if (btn) { await btn.click(); await new Promise(r => setTimeout(r, 3000)); }
+        }
+
+        // --- A MÁGICA DA V26: FORJAR O COLAR ---
+        if (imagePath) {
+            console.log('🧪 Iniciando injeção via Evento Sintético...');
+            
+            // 1. Lê a imagem em Base64 no Node
+            const imgBuffer = await fs.readFile(imagePath);
+            const imgBase64 = imgBuffer.toString('base64');
+            const mimeType = 'image/jpeg'; // Assumindo JPEG
+
+            // 2. Executa script no navegador para criar o evento
+            const pasteResult = await page.evaluate(async (selector, base64, mime) => {
+                try {
+                    const target = document.querySelector(selector);
+                    if (!target) return 'Editor não encontrado';
+
+                    // Converte base64 para Blob
+                    const byteCharacters = atob(base64);
+                    const byteNumbers = new Array(byteCharacters.length);
+                    for (let i = 0; i < byteCharacters.length; i++) {
+                        byteNumbers[i] = byteCharacters.charCodeAt(i);
+                    }
+                    const byteArray = new Uint8Array(byteNumbers);
+                    const blob = new Blob([byteArray], { type: mime });
+                    const file = new File([blob], "image.jpg", { type: mime });
+
+                    // Cria o DataTransfer (a "Area de Transferencia Fake")
+                    const dataTransfer = new DataTransfer();
+                    dataTransfer.items.add(file);
+
+                    // Cria o evento de colar
+                    const pasteEvent = new ClipboardEvent('paste', {
+                        bubbles: true,
+                        cancelable: true,
+                        clipboardData: dataTransfer
+                    });
+
+                    // Dispara no elemento
+                    target.focus();
+                    target.dispatchEvent(pasteEvent);
+                    
+                    return 'SUCCESS';
+                } catch (err) {
+                    return err.toString();
+                }
+            }, editorSelector, imgBase64, mimeType);
+
+            console.log(`Resultado da injeção: ${pasteResult}`);
+
+            if (pasteResult !== 'SUCCESS') {
+                return await abortWithProof(page, 'Falha no script de colar: ' + pasteResult);
+            }
+
+            // Espera o LinkedIn processar
+            console.log('Aguardando LinkedIn processar a "colagem"...');
+            try {
+                await page.waitForSelector('.share-creation-state__media-preview, img[alt*="Preview"]', { timeout: 60000 });
+                console.log('✅ Imagem processada com sucesso!');
+            } catch (e) {
+                return await abortWithProof(page, 'LinkedIn ignorou o evento de colar.');
             }
         }
 
-        try { await checkSession(page); } catch(e) { return await abortWithProof(page, 'Desconectado no modal.'); }
-
-        // --- 1. INJETAR TEXTO (JavaScript Puro) ---
+        // --- TEXTO ---
         if (texto) {
-            console.log('📝 Injetando texto...');
+            console.log('📝 Escrevendo texto...');
             try {
+                // Injeta texto via DOM (mais seguro que digitar)
                 await page.evaluate((sel, txt) => {
                     const el = document.querySelector(sel);
-                    if (el) {
-                        el.innerText = txt; // Força texto bruto
-                        el.dispatchEvent(new Event('input', { bubbles: true }));
-                    }
+                    // Adiciona o texto sem apagar a imagem (append)
+                    const p = document.createElement('p');
+                    p.innerText = txt;
+                    el.appendChild(p);
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
                 }, editorSelector, texto);
             } catch(e) {}
         }
 
-        // --- 2. UPLOAD FORÇADO ---
-        if (imagePath) {
-            console.log('📸 Upload...');
-            try {
-                // Deixa o input file visível na marra
-                await page.evaluate(() => {
-                    const input = document.querySelector('input[type="file"]');
-                    if (input) {
-                        input.style.display = 'block';
-                        input.style.visibility = 'visible';
-                        input.style.position = 'fixed';
-                        input.style.zIndex = '99999';
-                    }
-                });
-                
-                const input = await page.$('input[type="file"]');
-                if (input) {
-                    await input.uploadFile(imagePath);
-                    await page.waitForSelector('.share-creation-state__media-preview, img[alt*="Preview"]', { timeout: 60000 });
-                    console.log('Imagem carregada!');
-                }
-            } catch (e) {
-                console.log('Erro upload: ' + e.message);
-            }
-        }
-
-        try { await checkSession(page); } catch(e) { return await abortWithProof(page, 'Desconectado pré-publicar.'); }
-
-        // --- 3. PUBLICAR ---
+        // --- PUBLICAR ---
         console.log('🚀 Publicando...');
+        await new Promise(r => setTimeout(r, 2000));
         const btnPost = await page.waitForSelector('button.share-actions__primary-action');
+        
+        if (await page.evaluate(el => el.disabled, btnPost)) return await abortWithProof(page, 'Botão desabilitado.');
+        
         await btnPost.click();
         await new Promise(r => setTimeout(r, 8000));
 
-        try { await checkSession(page); } catch(e) { return await abortWithProof(page, 'Caiu ao finalizar.'); }
-
-        console.log('✅ SUCESSO V24!');
+        console.log('✅ SUCESSO V26!');
         const finalImg = await page.screenshot({ type: 'jpeg', quality: 70, fullPage: true });
         res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': finalImg.length });
         res.end(finalImg);
