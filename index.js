@@ -21,7 +21,7 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('⚠️ PROMESSA REJEITADA:', reason);
 });
 
-const server = app.listen(PORT, () => console.log(`Super Bot V12 (Debug & Precision) rodando na porta ${PORT} 🛡️`));
+const server = app.listen(PORT, () => console.log(`Super Bot V13 (Clipboard Paste) rodando na porta ${PORT} 🛡️`));
 server.setTimeout(600000); 
 
 app.use(express.json({ limit: '100mb' }));
@@ -39,7 +39,7 @@ async function downloadImage(url) {
 }
 
 // Rota de Teste
-app.get('/', (req, res) => res.send('Super Bot V12 Online 🛡️'));
+app.get('/', (req, res) => res.send('Super Bot V13 Online (Clipboard Mode) 🛡️'));
 
 // --- FUNÇÃO AUXILIAR: CLIQUE ROBUSTO ---
 async function clickByText(page, textsToFind, tag = '*') {
@@ -62,13 +62,12 @@ async function clickByText(page, textsToFind, tag = '*') {
 // ROTA 1: LINKEDIN (MANTIDA)
 // ==========================================
 app.post('/publicar', upload.single('imagem'), async (req, res) => {
-    // ... (Código do LinkedIn mantido igual para economizar espaço, se precisar me avise) ...
-    // Vou focar na correção do Instagram abaixo
+    // ... Código LinkedIn mantido ...
     res.status(200).send("Use a rota /instagram"); 
 });
 
 // ==========================================
-// ROTA 2: INSTAGRAM (V12 - PASSO A PASSO DEBUGADO)
+// ROTA 2: INSTAGRAM (V13 - CLIPBOARD PASTE)
 // ==========================================
 app.post('/instagram', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -88,12 +87,16 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
     };
 
     try {
-        console.log('--- INICIANDO INSTAGRAM (V12) ---');
+        console.log('--- INICIANDO INSTAGRAM (V13) ---');
         const { legenda, cookies, imagemUrl } = req.body;
         
-        // 1. DIAGNÓSTICO DE ENTRADA
-        if (!legenda) console.log('⚠️ [ALERTA] A variável "legenda" chegou VAZIA ou UNDEFINED. Verifique o n8n!');
-        else console.log(`[Insta] Legenda recebida (${legenda.length} caracteres).`);
+        // --- CHECK DE DEBUG ---
+        if (!legenda) {
+            console.log('⚠️ [ALERTA CRÍTICO] Variável "legenda" veio VAZIA ou UNDEFINED.');
+            console.log('Verifique se o parâmetro no n8n se chama exatamente "legenda" (minúsculo).');
+        } else {
+            console.log(`✅ Legenda recebida: "${legenda.substring(0, 20)}..." (${legenda.length} chars)`);
+        }
 
         if (!imagePath && imagemUrl) {
             try { imagePath = await downloadImage(imagemUrl); } catch (e) {}
@@ -109,11 +112,16 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
                 '--disable-setuid-sandbox', 
                 '--disable-dev-shm-usage',
                 '--window-size=1366,768', 
-                '--start-maximized'
+                '--start-maximized',
+                '--disable-features=IsolateOrigins,site-per-process' // Ajuda na manipulação do DOM
             ],
             defaultViewport: { width: 1366, height: 768 },
             timeout: 60000
         });
+
+        // Permissão de Clipboard para o Browser Context
+        const context = browser.defaultBrowserContext();
+        await context.overridePermissions('https://www.instagram.com', ['clipboard-read', 'clipboard-write']);
 
         page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
@@ -124,13 +132,13 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
 
         console.log('[Insta] Acessando Home...');
         await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-        await new Promise(r => setTimeout(r, 6000));
+        await new Promise(r => setTimeout(r, 5000));
 
-        // Limpeza de Popups
+        // Popups
         await clickByText(page, ['Not Now', 'Agora não', 'Cancel']);
         
         // --- ABRIR CRIAÇÃO ---
-        console.log('[Insta] Abrindo Modal Criar...');
+        console.log('[Insta] Botão Criar...');
         let createBtnFound = false;
         const createSelector = 'svg[aria-label="New post"], svg[aria-label="Nova publicação"], svg[aria-label="Create"], svg[aria-label="Criar"]';
         
@@ -157,96 +165,97 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
             await fileChooser.accept([imagePath]);
         }
         
-        console.log('[Insta] Arquivo enviado. Esperando Crop...');
+        console.log('[Insta] Aguardando Crop...');
         await new Promise(r => setTimeout(r, 5000));
 
-        // --- NAVEGAÇÃO 1: CROP -> FILTROS ---
-        console.log('[Insta] Passo 1: Crop -> Filtros (Clicando em Next)...');
-        // Botão Next geralmente fica no topo direito do modal
+        // --- NAVEGAÇÃO ---
+        console.log('[Insta] Next 1 (Crop)...');
         let next1 = await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]'); 
         if(!next1) next1 = await clickByText(page, ['Next', 'Avançar'], 'button');
-        
-        if (!next1) return await abortWithProof(page, 'Travou na tela de corte (Crop).');
-        await new Promise(r => setTimeout(r, 3000)); // Espera animação
+        if (!next1) return await abortWithProof(page, 'Travou no Crop.');
+        await new Promise(r => setTimeout(r, 3000));
 
-        // --- NAVEGAÇÃO 2: FILTROS -> LEGENDA ---
-        console.log('[Insta] Passo 2: Filtros -> Legenda (Clicando em Next)...');
+        console.log('[Insta] Next 2 (Filtros)...');
         let next2 = await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]');
         if(!next2) next2 = await clickByText(page, ['Next', 'Avançar'], 'button');
+        if (!next2) return await abortWithProof(page, 'Travou nos Filtros.');
         
-        if (!next2) return await abortWithProof(page, 'Travou na tela de filtros.');
-        
-        console.log('[Insta] Chegando na tela final. Aguardando renderização...');
-        await new Promise(r => setTimeout(r, 5000)); // ESSENCIAL: Espera o campo de texto aparecer
+        console.log('[Insta] Tela final. Aguardando campo...');
+        await new Promise(r => setTimeout(r, 5000)); 
 
-        // --- ESCRITA DA LEGENDA ---
-        if (legenda) {
-            console.log('[Insta] Procurando campo de texto...');
+        // --- LEGENDA (CLIPBOARD STRATEGY) ---
+        if (legenda && legenda.trim().length > 0) {
+            console.log('[Insta] Preparando colar legenda...');
             try {
-                // Seletor universal para a área de texto do Instagram Desktop
-                const textAreaSelector = 'div[role="dialog"] div[contenteditable="true"][role="textbox"]';
+                // 1. Encontra a área de texto (Seletor Universal)
+                // Procura div com aria-label ou role=textbox
+                const selectors = [
+                    'div[aria-label="Write a caption..."]',
+                    'div[aria-label="Escreva uma legenda..."]',
+                    'div[role="textbox"][contenteditable="true"]'
+                ];
                 
-                // Espera visibilidade
-                await page.waitForSelector(textAreaSelector, { visible: true, timeout: 10000 });
-                
-                console.log('[Insta] Campo encontrado. Focando...');
-                await page.click(textAreaSelector);
-                await new Promise(r => setTimeout(r, 1000));
-                
-                // Estratégia Híbrida: Digita um espaço para acordar o React, depois cola o texto
-                console.log('[Insta] Digitando...');
-                await page.keyboard.press('Space'); // Acorda o campo
-                await new Promise(r => setTimeout(r, 500));
-                await page.keyboard.press('Backspace'); // Apaga o espaço
-                
-                // Digita letra por letra (Método mais seguro para React)
-                // Se o texto for muito longo, pode demorar, mas é o que garante funcionar
-                if (legenda.length > 500) {
-                     // Se for texto longo, usa colar
-                     await page.keyboard.type(legenda.substring(0, 5), { delay: 100 }); // Digita o começo
-                     await page.evaluate((txt) => navigator.clipboard.writeText(txt), legenda.substring(5)); // Copia o resto
-                     await page.keyboard.down('Control');
-                     await page.keyboard.press('V');
-                     await page.keyboard.up('Control');
-                } else {
-                     // Texto curto/médio digita tudo
-                     await page.keyboard.type(legenda, { delay: 50 });
+                let textArea = null;
+                for (const sel of selectors) {
+                    try {
+                        textArea = await page.waitForSelector(sel, { visible: true, timeout: 2000 });
+                        if (textArea) break;
+                    } catch(e){}
                 }
 
-                console.log('[Insta] Texto inserido.');
+                if (textArea) {
+                    console.log('[Insta] Campo focado. Copiando texto para clipboard...');
+                    await textArea.click();
+                    await new Promise(r => setTimeout(r, 1000)); // Espera foco
+
+                    // 2. Coloca o texto no Clipboard do Browser (via JS)
+                    // Isso ignora problemas de emulação de teclado
+                    await page.evaluate((text) => {
+                        navigator.clipboard.writeText(text);
+                    }, legenda);
+                    
+                    await new Promise(r => setTimeout(r, 500));
+
+                    // 3. Executa o comando PASTE (CTRL+V)
+                    console.log('[Insta] Executando CTRL+V...');
+                    await page.keyboard.down('Control');
+                    await page.keyboard.press('V');
+                    await page.keyboard.up('Control');
+                    
+                    console.log('[Insta] Colado!');
+                    await new Promise(r => setTimeout(r, 2000));
+
+                } else {
+                    console.log('[Insta] ERRO: Não achei o campo de texto visualmente.');
+                }
             } catch(e) {
-                console.log(`[Insta] ERRO AO DIGITAR: ${e.message}`);
-                // Tenta fallback: Clicar na área geral se o seletor específico falhou
-                try {
-                    await page.click('div[aria-label="Write a caption..."]');
-                    await page.keyboard.type(legenda, { delay: 50 });
-                } catch(err2) {}
+                console.log(`[Insta] ERRO CRÍTICO NA LEGENDA: ${e.message}`);
             }
         } else {
-            console.log('[Insta] PULEI A LEGENDA POIS A VARIÁVEL ESTÁ VAZIA.');
+            console.log('[Insta] PULEI LEGENDA (Vazia).');
         }
 
         // --- SHARE ---
-        console.log('[Insta] Clicando em Compartilhar...');
+        console.log('[Insta] Compartilhando...');
         await new Promise(r => setTimeout(r, 2000));
         
         let share = await clickByText(page, ['Share', 'Compartilhar'], 'div[role="button"]');
         if(!share) share = await clickByText(page, ['Share', 'Compartilhar'], 'button');
 
         if (share) {
-            console.log('[Insta] Enviando...');
-            await new Promise(r => setTimeout(r, 15000)); // Tempo para upload da imagem
+            console.log('[Insta] Postando...');
+            await new Promise(r => setTimeout(r, 15000)); 
             
-            // Verifica sucesso
+            // Verifica sucesso visual
             const success = await clickByText(page, ['Post shared', 'Publicação compartilhada', 'Your post has been shared'], 'span');
-            if (success) console.log('[Insta] Confirmação visual de sucesso!');
+            if (success) console.log('[Insta] Confirmado!');
             
-            console.log('[Insta] SUCESSO FINAL!');
+            console.log('[Insta] SUCESSO!');
             const finalImg = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
             res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': finalImg.length });
             res.end(finalImg);
         } else {
-            return await abortWithProof(page, 'Botão Compartilhar sumiu ou legenda travou.');
+            return await abortWithProof(page, 'Botão Compartilhar não encontrado.');
         }
 
     } catch (error) {
