@@ -14,7 +14,7 @@ const app = express();
 const PORT = process.env.PORT || 80;
 const upload = multer({ dest: '/tmp/uploads/' });
 
-// --- SISTEMA ANTI-CRASH (SEGURA O SERVIDOR LIGADO) ---
+// --- SISTEMA ANTI-CRASH ---
 process.on('uncaughtException', (err) => {
     console.error('⚠️ ERRO CRÍTICO (Mas o servidor continua vivo):', err);
 });
@@ -22,7 +22,7 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('⚠️ PROMESSA REJEITADA (Servidor vivo):', reason);
 });
 
-const server = app.listen(PORT, () => console.log(`Super Bot V4 (Anti-Crash) rodando na porta ${PORT} 🛡️`));
+const server = app.listen(PORT, () => console.log(`Super Bot V5 (Force Click) rodando na porta ${PORT} 🛡️`));
 server.setTimeout(600000); 
 
 app.use(express.json({ limit: '100mb' }));
@@ -39,16 +39,18 @@ async function downloadImage(url) {
     });
 }
 
-// Rota de Teste (Para saber se atualizou)
-app.get('/', (req, res) => res.send('Super Bot V4 Online (Fix Insta +) 🛡️'));
+// Rota de Teste
+app.get('/', (req, res) => res.send('Super Bot V5 Online (Force Click XY) 🛡️'));
 
-// --- FUNÇÃO DE CLIQUE SEGURA (INSTAGRAM) ---
+// --- FUNÇÃO DE CLIQUE POR TEXTO ---
 async function clickByText(page, textsToFind) {
     try {
         return await page.evaluate((texts) => {
-            const elements = [...document.querySelectorAll('button, div[role="button"], span, a')];
+            const elements = [...document.querySelectorAll('button, div[role="button"], span, a, div')];
             for (const el of elements) {
-                if (texts.some(t => el.innerText && el.innerText.toLowerCase().includes(t.toLowerCase()))) {
+                // Verifica texto interno ou aria-label
+                const text = el.innerText || el.getAttribute('aria-label') || '';
+                if (texts.some(t => text.toLowerCase().includes(t.toLowerCase()))) {
                     el.click();
                     return true;
                 }
@@ -59,7 +61,7 @@ async function clickByText(page, textsToFind) {
 }
 
 // ==========================================
-// ROTA 1: LINKEDIN (V33 - MANTIDA)
+// ROTA 1: LINKEDIN (MANTIDA IGUAL)
 // ==========================================
 app.post('/publicar', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -79,7 +81,7 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
     };
 
     try {
-        console.log('--- INICIANDO LINKEDIN (V4) ---');
+        console.log('--- INICIANDO LINKEDIN (V5) ---');
         const { texto, paginaUrl, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -182,7 +184,7 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
 });
 
 // ==========================================
-// ROTA 2: INSTAGRAM (CORRIGIDA - FIX BOTÃO +)
+// ROTA 2: INSTAGRAM (CLIQUE POR COORDENADAS)
 // ==========================================
 app.post('/instagram', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -202,7 +204,7 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
     };
 
     try {
-        console.log('--- INICIANDO INSTAGRAM (V4 - FIX) ---');
+        console.log('--- INICIANDO INSTAGRAM (V5 - Force XY) ---');
         const { legenda, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -219,6 +221,7 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
         });
 
         page = await browser.newPage();
+        // Emulando iPhone 12 Pro (390 x 844) - Coordenadas são conhecidas
         const iPhone = KnownDevices['iPhone 12 Pro'];
         await page.emulate(iPhone);
 
@@ -235,85 +238,101 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
             return await abortWithProof(page, 'Caiu no Login.');
         }
 
-        // --- MATA POPUPS (COM FUNÇÃO SEGURA) ---
-        console.log('[Insta] Caçando popups...');
-        for (let i = 0; i < 4; i++) {
-            const closed = await clickByText(page, ['Not now', 'Agora não', 'Agora nao', 'Cancel', 'Cancelar', 'Salvar informações', 'Save info']);
-            if (closed) {
-                console.log('[Insta] Popup fechado.');
-                await new Promise(r => setTimeout(r, 2000));
-            }
+        // --- MATAR POPUPS (Tenta clicar nos botões "Agora não" ou "Cancelar") ---
+        console.log('[Insta] Limpando popups...');
+        for (let i = 0; i < 3; i++) {
+            try {
+                // Tenta fechar popup "Adicionar à tela inicial" ou "Notificações"
+                await clickByText(page, ['Not now', 'Agora não', 'Cancel', 'Cancelar']);
+                await new Promise(r => setTimeout(r, 1500));
+            } catch(e){}
         }
         
-        // Clica no centro da tela (Safe zone) para fechar modais soltos
-        try { await page.mouse.click(190, 400); } catch(e){}
+        // Clica no centro-baixo (safe zone) para fechar modais que fecham ao clicar fora
+        try { await page.mouse.click(190, 450); } catch(e){}
+        await new Promise(r => setTimeout(r, 1000));
 
-        // --- CORREÇÃO DO BOTÃO (+) ---
-        console.log('[Insta] Buscando (+)...');
+        // --- CLIQUE NO BOTÃO (+) ---
+        console.log('[Insta] Clicando no (+) ...');
         
-        // Seletor universal (PT/EN/SVG)
-        const selectorPost = 'svg[aria-label="New post"], svg[aria-label="Nova publicação"], svg[aria-label="Create"]';
-        
-        try {
-            // Espera explícita para garantir que o elemento carregou
-            await page.waitForSelector(selectorPost, { visible: true, timeout: 12000 });
-        } catch (e) {
-            console.log('[Insta] Aviso: Botão (+) demorou. Tentando limpar popup novamente...');
-            await clickByText(page, ['Not now', 'Agora não']);
-        }
-
-        // Tenta pegar o elemento SVG e subir para o botão clicável
-        const btnIcon = await page.$(selectorPost);
-        let uploadBtn = null;
-        if (btnIcon) {
-            uploadBtn = await btnIcon.evaluateHandle(el => el.closest('div[role="button"]') || el.closest('a'));
-        }
-
-        if (!uploadBtn) {
-            return await abortWithProof(page, 'Não achei botão (+). Veja o print.');
-        }
-
+        // Prepara o FileChooser ANTES de clicar
         const fileChooserPromise = page.waitForFileChooser();
-        await uploadBtn.click();
-        console.log('[Insta] Enviando arquivo...');
         
+        // Tenta 1: Seletor
+        let clicked = false;
+        try {
+            const btnSelector = 'svg[aria-label="New post"], svg[aria-label="Nova publicação"], svg[aria-label="Create"]';
+            if (await page.$(btnSelector)) {
+                await page.click(btnSelector);
+                clicked = true;
+            }
+        } catch(e) {}
+
+        // Tenta 2: CLIQUE FORÇADO POR COORDENADAS (XY)
+        // No iPhone 12 Pro, o botão fica no canto superior direito.
+        // X: ~355, Y: ~45
+        if (!clicked) {
+            console.log('[Insta] Seletor falhou. Usando clique FORCE (XY)...');
+            await page.mouse.click(355, 45);
+        }
+
+        console.log('[Insta] Aguardando seletor de arquivo...');
+        // Espera o seletor de arquivos abrir
         const fileChooser = await fileChooserPromise;
         await fileChooser.accept([imagePath]);
-        await new Promise(r => setTimeout(r, 6000)); // Delay maior para carregar preview
+        console.log('[Insta] Arquivo enviado!');
+        await new Promise(r => setTimeout(r, 8000)); // Espera upload e preview
 
+        // --- FLUXO DE POSTAGEM ---
+        
         // Avançar 1
-        console.log('[Insta] Avançar 1...');
+        console.log('[Insta] Avançar 1 (XY Safe)...');
+        // O botão avançar (Next) costuma ficar no topo direito também após upload
+        // Vamos tentar texto primeiro, depois coordenada
         const next1 = await clickByText(page, ['Next', 'Avançar']);
-        if (!next1) return await abortWithProof(page, 'Botão Avançar 1 sumiu.');
-        await new Promise(r => setTimeout(r, 3000));
+        if (!next1) {
+            console.log('[Insta] Texto falhou, clicando no topo direito...');
+            await page.mouse.click(355, 45); 
+        }
+        await new Promise(r => setTimeout(r, 4000));
 
-        // Avançar 2
+        // Avançar 2 (Filtros)
         console.log('[Insta] Avançar 2...');
-        await clickByText(page, ['Next', 'Avançar']);
-        await new Promise(r => setTimeout(r, 3000));
+        const next2 = await clickByText(page, ['Next', 'Avançar']);
+        if (!next2) {
+             await page.mouse.click(355, 45);
+        }
+        await new Promise(r => setTimeout(r, 4000));
 
         // Legenda
         if (legenda) {
-            console.log('[Insta] Legenda...');
+            console.log('[Insta] Escrevendo legenda...');
             try {
-                const textArea = await page.waitForSelector('textarea[aria-label="Write a caption..."], textarea[aria-label="Escreva uma legenda..."]', { timeout: 5000 });
+                // Tenta clicar na área de texto primeiro
+                const textArea = await page.waitForSelector('textarea, div[role="textbox"]', { timeout: 5000 });
+                await textArea.click();
+                await new Promise(r => setTimeout(r, 500));
                 await textArea.type(legenda, { delay: 50 });
-            } catch(e) {}
+            } catch(e) {
+                console.log('[Insta] Erro na legenda (ignorando): ' + e.message);
+            }
         }
 
         // Compartilhar
         console.log('[Insta] Compartilhando...');
         const shared = await clickByText(page, ['Share', 'Compartilhar']);
-        
-        if (shared) {
-            await new Promise(r => setTimeout(r, 10000));
-            console.log('[Insta] SUCESSO!');
-            const finalImg = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
-            res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': finalImg.length });
-            res.end(finalImg);
-        } else {
-            return await abortWithProof(page, 'Botão Compartilhar sumiu.');
+        if (!shared) {
+             // Tenta clicar no topo direito de novo (Share costuma ficar lá)
+             await page.mouse.click(355, 45);
         }
+
+        await new Promise(r => setTimeout(r, 12000));
+        console.log('[Insta] PROCESSO FINALIZADO!');
+        
+        // Tira print final para confirmação
+        const finalImg = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
+        res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': finalImg.length });
+        res.end(finalImg);
 
     } catch (error) {
         if (page) await abortWithProof(page, error.message);
