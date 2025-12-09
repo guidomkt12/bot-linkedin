@@ -16,13 +16,13 @@ const upload = multer({ dest: '/tmp/uploads/' });
 
 // --- SISTEMA ANTI-CRASH ---
 process.on('uncaughtException', (err) => {
-    console.error('⚠️ ERRO CRÍTICO (Mas o servidor continua vivo):', err);
+    console.error('⚠️ ERRO CRÍTICO:', err);
 });
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('⚠️ PROMESSA REJEITADA (Servidor vivo):', reason);
+    console.error('⚠️ PROMESSA REJEITADA:', reason);
 });
 
-const server = app.listen(PORT, () => console.log(`Super Bot V5 (Force Click) rodando na porta ${PORT} 🛡️`));
+const server = app.listen(PORT, () => console.log(`Super Bot V6 (Geometry Scan) rodando na porta ${PORT} 🛡️`));
 server.setTimeout(600000); 
 
 app.use(express.json({ limit: '100mb' }));
@@ -40,28 +40,38 @@ async function downloadImage(url) {
 }
 
 // Rota de Teste
-app.get('/', (req, res) => res.send('Super Bot V5 Online (Force Click XY) 🛡️'));
+app.get('/', (req, res) => res.send('Super Bot V6 Online (Geometry Scan) 🛡️'));
 
-// --- FUNÇÃO DE CLIQUE POR TEXTO ---
-async function clickByText(page, textsToFind) {
+// --- FUNÇÃO DE CLIQUE HÍBRIDA (TAP/CLICK) ---
+async function tapByText(page, textsToFind) {
     try {
-        return await page.evaluate((texts) => {
-            const elements = [...document.querySelectorAll('button, div[role="button"], span, a, div')];
+        const found = await page.evaluate((texts) => {
+            const elements = [...document.querySelectorAll('button, div[role="button"], span, a, h1, h2, div')];
             for (const el of elements) {
-                // Verifica texto interno ou aria-label
                 const text = el.innerText || el.getAttribute('aria-label') || '';
                 if (texts.some(t => text.toLowerCase().includes(t.toLowerCase()))) {
-                    el.click();
-                    return true;
+                    return true; // Apenas sinaliza que achou para logica externa (simplificado aqui)
                 }
             }
             return false;
         }, textsToFind);
+
+        if (found) {
+            // Tenta clicar via XPath para garantir
+            for (const t of textsToFind) {
+                const [el] = await page.$x(`//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '${t.toLowerCase()}')]`);
+                if (el) {
+                    await el.tap();
+                    return true;
+                }
+            }
+        }
+        return false;
     } catch (e) { return false; }
 }
 
 // ==========================================
-// ROTA 1: LINKEDIN (MANTIDA IGUAL)
+// ROTA 1: LINKEDIN (MANTIDA)
 // ==========================================
 app.post('/publicar', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -81,7 +91,7 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
     };
 
     try {
-        console.log('--- INICIANDO LINKEDIN (V5) ---');
+        console.log('--- INICIANDO LINKEDIN (V6) ---');
         const { texto, paginaUrl, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -184,7 +194,7 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
 });
 
 // ==========================================
-// ROTA 2: INSTAGRAM (CLIQUE POR COORDENADAS)
+// ROTA 2: INSTAGRAM (GEOMETRY SCAN + TAP)
 // ==========================================
 app.post('/instagram', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -204,7 +214,7 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
     };
 
     try {
-        console.log('--- INICIANDO INSTAGRAM (V5 - Force XY) ---');
+        console.log('--- INICIANDO INSTAGRAM (V6 - Geometry) ---');
         const { legenda, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -221,7 +231,6 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
         });
 
         page = await browser.newPage();
-        // Emulando iPhone 12 Pro (390 x 844) - Coordenadas são conhecidas
         const iPhone = KnownDevices['iPhone 12 Pro'];
         await page.emulate(iPhone);
 
@@ -238,98 +247,97 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
             return await abortWithProof(page, 'Caiu no Login.');
         }
 
-        // --- MATAR POPUPS (Tenta clicar nos botões "Agora não" ou "Cancelar") ---
+        // --- MATAR POPUPS ---
         console.log('[Insta] Limpando popups...');
         for (let i = 0; i < 3; i++) {
             try {
-                // Tenta fechar popup "Adicionar à tela inicial" ou "Notificações"
-                await clickByText(page, ['Not now', 'Agora não', 'Cancel', 'Cancelar']);
-                await new Promise(r => setTimeout(r, 1500));
+                // Tenta TAP nos botões de cancelar
+                await tapByText(page, ['Not now', 'Agora não', 'Cancel', 'Cancelar']);
+                await new Promise(r => setTimeout(r, 1000));
             } catch(e){}
         }
         
-        // Clica no centro-baixo (safe zone) para fechar modais que fecham ao clicar fora
-        try { await page.mouse.click(190, 450); } catch(e){}
+        // Tap seguro no centro (Safe zone)
+        try { await page.touchscreen.tap(190, 450); } catch(e){}
         await new Promise(r => setTimeout(r, 1000));
 
-        // --- CLIQUE NO BOTÃO (+) ---
-        console.log('[Insta] Clicando no (+) ...');
+        // --- CLIQUE NO BOTÃO (+) VIA SCANNER GEOMÉTRICO ---
+        console.log('[Insta] Escaneando botão (+) ...');
         
-        // Prepara o FileChooser ANTES de clicar
+        // Ativa o ouvinte de arquivo ANTES do clique
         const fileChooserPromise = page.waitForFileChooser();
         
-        // Tenta 1: Seletor
-        let clicked = false;
-        try {
-            const btnSelector = 'svg[aria-label="New post"], svg[aria-label="Nova publicação"], svg[aria-label="Create"]';
-            if (await page.$(btnSelector)) {
-                await page.click(btnSelector);
-                clicked = true;
+        // Estratégia: Encontrar qualquer SVG visível no canto superior direito
+        const btnLocation = await page.evaluate(() => {
+            const width = window.innerWidth;
+            // Define a "zona do botão": últimos 100px da direita, topo de 60px
+            const scanZone = { xMin: width - 90, yMax: 60 };
+            
+            // Procura SVGs
+            const svgs = Array.from(document.querySelectorAll('svg'));
+            for (const svg of svgs) {
+                const rect = svg.getBoundingClientRect();
+                // Verifica se está visível e na zona
+                if (rect.x > scanZone.xMin && rect.y < scanZone.yMax && rect.width > 10 && rect.height > 10) {
+                    return { x: rect.x + (rect.width / 2), y: rect.y + (rect.height / 2), found: true };
+                }
             }
-        } catch(e) {}
+            return { found: false };
+        });
 
-        // Tenta 2: CLIQUE FORÇADO POR COORDENADAS (XY)
-        // No iPhone 12 Pro, o botão fica no canto superior direito.
-        // X: ~355, Y: ~45
-        if (!clicked) {
-            console.log('[Insta] Seletor falhou. Usando clique FORCE (XY)...');
-            await page.mouse.click(355, 45);
+        if (btnLocation.found) {
+            console.log(`[Insta] Botão encontrado em X:${btnLocation.x}, Y:${btnLocation.y}. Tocando...`);
+            await page.touchscreen.tap(btnLocation.x, btnLocation.y);
+        } else {
+            console.log('[Insta] Scanner falhou. Tentando TAP fixo (fallback)...');
+            // Tap fixo ajustado para iPhone 12 Pro (Mais centralizado no ícone)
+            await page.touchscreen.tap(360, 45);
         }
 
-        console.log('[Insta] Aguardando seletor de arquivo...');
-        // Espera o seletor de arquivos abrir
+        console.log('[Insta] Aguardando FileChooser...');
         const fileChooser = await fileChooserPromise;
         await fileChooser.accept([imagePath]);
         console.log('[Insta] Arquivo enviado!');
-        await new Promise(r => setTimeout(r, 8000)); // Espera upload e preview
+        await new Promise(r => setTimeout(r, 8000));
 
         // --- FLUXO DE POSTAGEM ---
         
-        // Avançar 1
-        console.log('[Insta] Avançar 1 (XY Safe)...');
-        // O botão avançar (Next) costuma ficar no topo direito também após upload
-        // Vamos tentar texto primeiro, depois coordenada
-        const next1 = await clickByText(page, ['Next', 'Avançar']);
-        if (!next1) {
-            console.log('[Insta] Texto falhou, clicando no topo direito...');
-            await page.mouse.click(355, 45); 
+        // Avançar 1 (Next)
+        console.log('[Insta] Avançar 1...');
+        const nextFound = await tapByText(page, ['Next', 'Avançar']);
+        if (!nextFound) {
+            console.log('[Insta] Texto Next falhou, tentando tap no topo direito...');
+            await page.touchscreen.tap(360, 45); 
         }
         await new Promise(r => setTimeout(r, 4000));
 
-        // Avançar 2 (Filtros)
+        // Avançar 2 (Filters)
         console.log('[Insta] Avançar 2...');
-        const next2 = await clickByText(page, ['Next', 'Avançar']);
-        if (!next2) {
-             await page.mouse.click(355, 45);
-        }
+        const nextFound2 = await tapByText(page, ['Next', 'Avançar']);
+        if (!nextFound2) await page.touchscreen.tap(360, 45);
         await new Promise(r => setTimeout(r, 4000));
 
         // Legenda
         if (legenda) {
             console.log('[Insta] Escrevendo legenda...');
             try {
-                // Tenta clicar na área de texto primeiro
                 const textArea = await page.waitForSelector('textarea, div[role="textbox"]', { timeout: 5000 });
-                await textArea.click();
+                await textArea.tap(); // Tap para focar
                 await new Promise(r => setTimeout(r, 500));
                 await textArea.type(legenda, { delay: 50 });
             } catch(e) {
-                console.log('[Insta] Erro na legenda (ignorando): ' + e.message);
+                console.log('[Insta] Erro legenda: ' + e.message);
             }
         }
 
         // Compartilhar
         console.log('[Insta] Compartilhando...');
-        const shared = await clickByText(page, ['Share', 'Compartilhar']);
-        if (!shared) {
-             // Tenta clicar no topo direito de novo (Share costuma ficar lá)
-             await page.mouse.click(355, 45);
-        }
+        const shared = await tapByText(page, ['Share', 'Compartilhar']);
+        if (!shared) await page.touchscreen.tap(360, 45); // Tenta o topo direito de novo
 
-        await new Promise(r => setTimeout(r, 12000));
+        await new Promise(r => setTimeout(r, 15000)); // Mais tempo para upload
         console.log('[Insta] PROCESSO FINALIZADO!');
         
-        // Tira print final para confirmação
         const finalImg = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
         res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': finalImg.length });
         res.end(finalImg);
