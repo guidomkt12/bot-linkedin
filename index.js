@@ -14,8 +14,15 @@ const app = express();
 const PORT = process.env.PORT || 80;
 const upload = multer({ dest: '/tmp/uploads/' });
 
-// Inicia servidor
-const server = app.listen(PORT, () => console.log(`Super Bot V3 (Fix Instagram) rodando na porta ${PORT} 🔧`));
+// --- SISTEMA ANTI-CRASH (SEGURA O SERVIDOR LIGADO) ---
+process.on('uncaughtException', (err) => {
+    console.error('⚠️ ERRO CRÍTICO (Mas o servidor continua vivo):', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('⚠️ PROMESSA REJEITADA (Servidor vivo):', reason);
+});
+
+const server = app.listen(PORT, () => console.log(`Super Bot V4 (Anti-Crash) rodando na porta ${PORT} 🛡️`));
 server.setTimeout(600000); 
 
 app.use(express.json({ limit: '100mb' }));
@@ -32,16 +39,15 @@ async function downloadImage(url) {
     });
 }
 
-app.get('/', (req, res) => res.send('Super Bot V3 Online 🔧'));
+// Rota de Teste (Para saber se atualizou)
+app.get('/', (req, res) => res.send('Super Bot V4 Online (Fix Insta +) 🛡️'));
 
-// --- FUNÇÃO AUXILIAR: CLICAR POR TEXTO (SUBSTITUI O $x QUEBRADO) ---
+// --- FUNÇÃO DE CLIQUE SEGURA (INSTAGRAM) ---
 async function clickByText(page, textsToFind) {
     try {
-        const clicked = await page.evaluate((texts) => {
-            // Pega todos os elementos que podem ser botões
+        return await page.evaluate((texts) => {
             const elements = [...document.querySelectorAll('button, div[role="button"], span, a')];
             for (const el of elements) {
-                // Verifica se o texto do elemento contém alguma das palavras chave
                 if (texts.some(t => el.innerText && el.innerText.toLowerCase().includes(t.toLowerCase()))) {
                     el.click();
                     return true;
@@ -49,12 +55,11 @@ async function clickByText(page, textsToFind) {
             }
             return false;
         }, textsToFind);
-        return clicked;
     } catch (e) { return false; }
 }
 
 // ==========================================
-// ROTA 1: LINKEDIN (MANTIDA IGUAL V33)
+// ROTA 1: LINKEDIN (V33 - MANTIDA)
 // ==========================================
 app.post('/publicar', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -74,16 +79,14 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
     };
 
     try {
-        console.log('--- INICIANDO LINKEDIN ---');
+        console.log('--- INICIANDO LINKEDIN (V4) ---');
         const { texto, paginaUrl, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
             try { imagePath = await downloadImage(imagemUrl); } catch (e) {}
         }
 
-        const cookiesEnv = process.env.LINKEDIN_COOKIES;
-        const cookiesFinal = cookies || cookiesEnv;
-        if (!cookiesFinal) throw new Error('Cookies obrigatórios.');
+        if (!cookies) throw new Error('Cookies obrigatórios.');
 
         browser = await puppeteer.launch({
             headless: true,
@@ -95,7 +98,7 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
         page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
 
-        const cookiesJson = typeof cookiesFinal === 'string' ? JSON.parse(cookiesFinal) : cookiesFinal;
+        const cookiesJson = typeof cookies === 'string' ? JSON.parse(cookies) : cookies;
         if (Array.isArray(cookiesJson)) await page.setCookie(...cookiesJson);
 
         console.log(`[LinkedIn] Indo para: ${paginaUrl}`);
@@ -179,7 +182,7 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
 });
 
 // ==========================================
-// ROTA 2: INSTAGRAM (CORRIGIDA)
+// ROTA 2: INSTAGRAM (CORRIGIDA - FIX BOTÃO +)
 // ==========================================
 app.post('/instagram', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -199,7 +202,7 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
     };
 
     try {
-        console.log('--- INICIANDO INSTAGRAM V3 ---');
+        console.log('--- INICIANDO INSTAGRAM (V4 - FIX) ---');
         const { legenda, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -219,62 +222,69 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
         const iPhone = KnownDevices['iPhone 12 Pro'];
         await page.emulate(iPhone);
 
-        console.log('[Insta] Aplicando cookies...');
+        console.log('[Insta] Cookies...');
         const cookiesJson = typeof cookies === 'string' ? JSON.parse(cookies) : cookies;
         if (Array.isArray(cookiesJson)) await page.setCookie(...cookiesJson);
 
-        console.log('[Insta] Indo para home...');
+        console.log('[Insta] Home...');
         await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
         await new Promise(r => setTimeout(r, 6000));
 
         const url = await page.url();
         if (url.includes('login') || url.includes('accounts/login')) {
-            return await abortWithProof(page, 'Caiu no Login. Cookies inválidos.');
+            return await abortWithProof(page, 'Caiu no Login.');
         }
 
-        // --- LIMPEZA DE POPUPS (COM FUNÇÃO SEGURA) ---
-        console.log('[Insta] Varrendo popups ("Agora não", "Cancelar", "Not now")...');
-        
-        // Tenta limpar a tela 3 vezes
-        for (let i = 0; i < 3; i++) {
-            const popupClosed = await clickByText(page, ['Not now', 'Agora não', 'Agora nao', 'Cancel', 'Cancelar']);
-            if (popupClosed) {
-                console.log(`[Insta] Popup fechado! Tentativa ${i+1}`);
+        // --- MATA POPUPS (COM FUNÇÃO SEGURA) ---
+        console.log('[Insta] Caçando popups...');
+        for (let i = 0; i < 4; i++) {
+            const closed = await clickByText(page, ['Not now', 'Agora não', 'Agora nao', 'Cancel', 'Cancelar', 'Salvar informações', 'Save info']);
+            if (closed) {
+                console.log('[Insta] Popup fechado.');
                 await new Promise(r => setTimeout(r, 2000));
             }
         }
-
-        // Tenta clicar no centro da tela para fechar modais soltos
-        try { await page.mouse.click(200, 300); } catch(e){}
-
-        console.log('[Insta] Procurando botão (+)...');
-        // Seletores de ícone mobile
-        const newPostSelectors = ['svg[aria-label="New post"]', 'svg[aria-label="Nova publicação"]', 'svg[aria-label="Criar"]'];
-        let uploadBtn = null;
         
-        for (const sel of newPostSelectors) {
-            try {
-                const el = await page.$(sel);
-                if (el) {
-                    uploadBtn = await el.evaluateHandle(el => el.closest('div[role="button"]') || el.closest('a'));
-                    break;
-                }
-            } catch(e){}
+        // Clica no centro da tela (Safe zone) para fechar modais soltos
+        try { await page.mouse.click(190, 400); } catch(e){}
+
+        // --- CORREÇÃO DO BOTÃO (+) ---
+        console.log('[Insta] Buscando (+)...');
+        
+        // Seletor universal (PT/EN/SVG)
+        const selectorPost = 'svg[aria-label="New post"], svg[aria-label="Nova publicação"], svg[aria-label="Create"]';
+        
+        try {
+            // Espera explícita para garantir que o elemento carregou
+            await page.waitForSelector(selectorPost, { visible: true, timeout: 12000 });
+        } catch (e) {
+            console.log('[Insta] Aviso: Botão (+) demorou. Tentando limpar popup novamente...');
+            await clickByText(page, ['Not now', 'Agora não']);
         }
 
-        if (!uploadBtn) return await abortWithProof(page, 'Não achei botão (+). Veja o print se ainda tem popup.');
+        // Tenta pegar o elemento SVG e subir para o botão clicável
+        const btnIcon = await page.$(selectorPost);
+        let uploadBtn = null;
+        if (btnIcon) {
+            uploadBtn = await btnIcon.evaluateHandle(el => el.closest('div[role="button"]') || el.closest('a'));
+        }
+
+        if (!uploadBtn) {
+            return await abortWithProof(page, 'Não achei botão (+). Veja o print.');
+        }
 
         const fileChooserPromise = page.waitForFileChooser();
         await uploadBtn.click();
         console.log('[Insta] Enviando arquivo...');
+        
         const fileChooser = await fileChooserPromise;
         await fileChooser.accept([imagePath]);
-        await new Promise(r => setTimeout(r, 5000));
+        await new Promise(r => setTimeout(r, 6000)); // Delay maior para carregar preview
 
         // Avançar 1
         console.log('[Insta] Avançar 1...');
-        const clickedNext1 = await clickByText(page, ['Next', 'Avançar']);
-        if (!clickedNext1) return await abortWithProof(page, 'Botão Avançar 1 não achado.');
+        const next1 = await clickByText(page, ['Next', 'Avançar']);
+        if (!next1) return await abortWithProof(page, 'Botão Avançar 1 sumiu.');
         await new Promise(r => setTimeout(r, 3000));
 
         // Avançar 2
@@ -293,9 +303,9 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
 
         // Compartilhar
         console.log('[Insta] Compartilhando...');
-        const clickedShare = await clickByText(page, ['Share', 'Compartilhar']);
+        const shared = await clickByText(page, ['Share', 'Compartilhar']);
         
-        if (clickedShare) {
+        if (shared) {
             await new Promise(r => setTimeout(r, 10000));
             console.log('[Insta] SUCESSO!');
             const finalImg = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
