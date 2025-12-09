@@ -256,4 +256,6 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
         else res.status(500).json({ erro: error.message });
     } finally {
         if (browser) await browser.close();
-        if
+        if (imagePath) await fs.remove(imagePath).catch(()=>{});
+    }
+});
