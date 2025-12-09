@@ -1,7 +1,6 @@
 const express = require('express');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
-// Removemos o KnownDevices pois não vamos mais emular celular
 puppeteer.use(StealthPlugin());
 
 const multer = require('multer');
@@ -22,7 +21,7 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('⚠️ PROMESSA REJEITADA:', reason);
 });
 
-const server = app.listen(PORT, () => console.log(`Super Bot V9 (Desktop Mode) rodando na porta ${PORT} 🛡️`));
+const server = app.listen(PORT, () => console.log(`Super Bot V9.1 (Desktop + Legenda Fix) rodando na porta ${PORT} 🛡️`));
 server.setTimeout(600000); 
 
 app.use(express.json({ limit: '100mb' }));
@@ -40,18 +39,15 @@ async function downloadImage(url) {
 }
 
 // Rota de Teste
-app.get('/', (req, res) => res.send('Super Bot V9 Online (Desktop Logic) 🛡️'));
+app.get('/', (req, res) => res.send('Super Bot V9.1 Online (Legenda Fix) 🛡️'));
 
-// --- FUNÇÃO AUXILIAR: CLIQUE POR TEXTO (ROBUSTA) ---
+// --- FUNÇÃO AUXILIAR: CLIQUE POR TEXTO ---
 async function clickByText(page, textsToFind, tag = '*') {
     try {
         return await page.evaluate((texts, tagName) => {
-            // Procura em botões, spans, divs e a (links)
             const elements = [...document.querySelectorAll(tagName)];
             for (const el of elements) {
-                // Pega texto visível ou aria-label
                 const txt = el.innerText || el.getAttribute('aria-label') || '';
-                // Verifica se contem algum dos textos procurados
                 if (texts.some(t => txt.toLowerCase().includes(t.toLowerCase()))) {
                     el.click();
                     return true;
@@ -63,7 +59,7 @@ async function clickByText(page, textsToFind, tag = '*') {
 }
 
 // ==========================================
-// ROTA 1: LINKEDIN (MANTIDA IGUAL)
+// ROTA 1: LINKEDIN (MANTIDA)
 // ==========================================
 app.post('/publicar', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -83,7 +79,7 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
     };
 
     try {
-        console.log('--- INICIANDO LINKEDIN (V9) ---');
+        console.log('--- INICIANDO LINKEDIN (V9.1) ---');
         const { texto, paginaUrl, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -186,7 +182,7 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
 });
 
 // ==========================================
-// ROTA 2: INSTAGRAM (V9 - MODO DESKTOP)
+// ROTA 2: INSTAGRAM (V9.1 - DESKTOP + LEGENDA FIX)
 // ==========================================
 app.post('/instagram', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -206,7 +202,7 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
     };
 
     try {
-        console.log('--- INICIANDO INSTAGRAM (V9 - Desktop) ---');
+        console.log('--- INICIANDO INSTAGRAM (V9.1 - Desktop) ---');
         const { legenda, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -218,12 +214,11 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
 
         browser = await puppeteer.launch({
             headless: true,
-            // Argumentos otimizados para Desktop Linux/Docker
             args: [
                 '--no-sandbox', 
                 '--disable-setuid-sandbox', 
                 '--disable-dev-shm-usage',
-                '--window-size=1366,768', // Resolução de Laptop Comum
+                '--window-size=1366,768', 
                 '--start-maximized'
             ],
             defaultViewport: { width: 1366, height: 768 },
@@ -231,7 +226,6 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
         });
 
         page = await browser.newPage();
-        // User Agent de Windows PC para garantir interface Desktop
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
 
         console.log('[Insta] Cookies...');
@@ -244,97 +238,86 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
 
         // --- 1. LIMPEZA DE POPUPS (DESKTOP) ---
         console.log('[Insta] Verificando notificações...');
-        // No desktop, costuma aparecer "Ativar Notificações". Clicamos em "Agora não".
         await clickByText(page, ['Not Now', 'Agora não', 'Agora nao', 'Cancel']);
         await new Promise(r => setTimeout(r, 2000));
 
         // --- 2. ABRIR MODAL DE CRIAÇÃO ---
-        console.log('[Insta] Buscando botão (+) na barra lateral...');
-        
-        // No desktop, o botão Criar é um item da sidebar esquerda.
-        // Procuramos pelo SVG ou pelo Texto "Create"/"Criar"
+        console.log('[Insta] Buscando botão (+)...');
         let createBtnFound = false;
         
-        // Tenta pelo SVG específico do Desktop
         const createSelector = 'svg[aria-label="New post"], svg[aria-label="Nova publicação"], svg[aria-label="Create"], svg[aria-label="Criar"]';
         if (await page.$(createSelector)) {
             await page.click(createSelector);
             createBtnFound = true;
         } else {
-            // Fallback: Procura pelo texto "Criar" na sidebar
             createBtnFound = await clickByText(page, ['Create', 'Criar'], 'span');
         }
 
-        if (!createBtnFound) {
-            return await abortWithProof(page, 'Não achei o botão Criar da barra lateral.');
-        }
+        if (!createBtnFound) return await abortWithProof(page, 'Não achei o botão Criar.');
+        await new Promise(r => setTimeout(r, 3000));
 
-        await new Promise(r => setTimeout(r, 3000)); // Espera o Modal abrir
-
-        // --- 3. SELEÇÃO DE ARQUIVO (MODAL) ---
-        console.log('[Insta] Modal aberto. Buscando botão "Selecionar do computador"...');
-        
-        // No desktop, aparece um modal com um botão azul "Select from computer"
+        // --- 3. SELEÇÃO DE ARQUIVO ---
+        console.log('[Insta] Selecionando arquivo...');
         const fileChooserPromise = page.waitForFileChooser();
-        
-        // Tenta clicar no botão azul pelo texto
         const selectBtn = await clickByText(page, ['Select from computer', 'Selecionar do computador', 'Select', 'Selecionar'], 'button');
         
         if (!selectBtn) {
-            // Se não achar o botão texto, tenta achar o input file oculto que o modal cria
-            console.log('[Insta] Botão azul não achado. Tentando input direto...');
             const inputUpload = await page.$('input[type="file"]');
             if (inputUpload) {
                 await inputUpload.uploadFile(imagePath);
             } else {
-                return await abortWithProof(page, 'Botão de upload e input sumiram.');
+                return await abortWithProof(page, 'Botão de upload sumiu.');
             }
         } else {
-            // Se clicou no botão, espera o seletor
             const fileChooser = await fileChooserPromise;
             await fileChooser.accept([imagePath]);
         }
 
-        console.log('[Insta] Arquivo carregado! Aguardando crop...');
+        console.log('[Insta] Arquivo carregado. Aguardando...');
         await new Promise(r => setTimeout(r, 6000));
 
-        // --- 4. FLUXO "NEXT" -> "NEXT" -> "SHARE" (TOPO DO MODAL) ---
-        // No desktop, os botões ficam no cabeçalho do modal (top right do modal)
-        
-        // Next 1 (Crop)
+        // --- 4. FLUXO NEXT -> NEXT ---
         console.log('[Insta] Next 1...');
         let next1 = await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]'); 
         if(!next1) next1 = await clickByText(page, ['Next', 'Avançar'], 'button');
-        
         if (!next1) return await abortWithProof(page, 'Botão Next 1 não encontrado.');
         await new Promise(r => setTimeout(r, 3000));
 
-        // Next 2 (Filtros)
         console.log('[Insta] Next 2...');
         let next2 = await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]');
         if(!next2) next2 = await clickByText(page, ['Next', 'Avançar'], 'button');
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise(r => setTimeout(r, 4000)); // Espera transição para tela de legenda
 
-        // Legenda
+        // --- 5. LEGENDA (CORRIGIDO) ---
         if (legenda) {
             console.log('[Insta] Escrevendo legenda...');
             try {
-                // No desktop a area de texto tem aria-label claro
-                const textArea = await page.waitForSelector('div[aria-label="Write a caption..."], div[aria-label="Escreva uma legenda..."]', { timeout: 5000 });
-                await textArea.click();
-                await textArea.type(legenda, { delay: 30 });
+                // Seletor genérico + específico de idioma
+                const captionSelectors = 'div[aria-label="Escreva uma legenda..."], div[aria-label="Write a caption..."], div[role="textbox"][contenteditable="true"]';
+                
+                const textArea = await page.waitForSelector(captionSelectors, { visible: true, timeout: 6000 });
+                
+                if (textArea) {
+                    await textArea.click(); // Clica para focar
+                    await new Promise(r => setTimeout(r, 1000)); // Espera foco
+                    
+                    // Digita usando o teclado (mais confiável para divs rich-text)
+                    await page.keyboard.type(legenda, { delay: 50 });
+                } else {
+                    console.log('[Insta] Aviso: Campo de legenda não encontrado pelo seletor.');
+                }
             } catch(e) {
-                console.log('[Insta] Erro legenda (não crítico): ' + e.message);
+                console.log('[Insta] Erro ao escrever legenda: ' + e.message);
             }
         }
 
-        // Share
+        // --- 6. SHARE ---
         console.log('[Insta] Compartilhando...');
+        await new Promise(r => setTimeout(r, 1000));
         let share = await clickByText(page, ['Share', 'Compartilhar'], 'div[role="button"]');
         if(!share) share = await clickByText(page, ['Share', 'Compartilhar'], 'button');
 
         if (share) {
-            // Espera a confirmação visual "Your post has been shared"
             await new Promise(r => setTimeout(r, 12000));
             console.log('[Insta] SUCESSO!');
             const finalImg = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
