@@ -22,7 +22,7 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('⚠️ PROMESSA REJEITADA:', reason);
 });
 
-const server = app.listen(PORT, () => console.log(`Super Bot V7 (Direct Input) rodando na porta ${PORT} 🛡️`));
+const server = app.listen(PORT, () => console.log(`Super Bot V8 (Hybrid Aggressive) rodando na porta ${PORT} 🛡️`));
 server.setTimeout(600000); 
 
 app.use(express.json({ limit: '100mb' }));
@@ -40,15 +40,16 @@ async function downloadImage(url) {
 }
 
 // Rota de Teste
-app.get('/', (req, res) => res.send('Super Bot V7 Online (Input Injection) 🛡️'));
+app.get('/', (req, res) => res.send('Super Bot V8 Online (Hybrid) 🛡️'));
 
-// --- FUNÇÃO DE AUXÍLIO: TAP TEXTO ---
+// --- FUNÇÃO AUXILIAR: TAP POR TEXTO ---
 async function tapByText(page, textsToFind) {
     try {
         return await page.evaluate((texts) => {
-            const elements = [...document.querySelectorAll('button, div[role="button"], span, a, h1')];
+            const elements = [...document.querySelectorAll('button, div[role="button"], span, a, h1, div')];
             for (const el of elements) {
-                if (texts.some(t => el.innerText && el.innerText.toLowerCase().includes(t.toLowerCase()))) {
+                const txt = el.innerText || el.getAttribute('aria-label') || '';
+                if (texts.some(t => txt.toLowerCase().includes(t.toLowerCase()))) {
                     el.click();
                     return true;
                 }
@@ -79,7 +80,7 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
     };
 
     try {
-        console.log('--- INICIANDO LINKEDIN (V7) ---');
+        console.log('--- INICIANDO LINKEDIN (V8) ---');
         const { texto, paginaUrl, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -182,7 +183,7 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
 });
 
 // ==========================================
-// ROTA 2: INSTAGRAM (DIRECT INPUT INJECTION)
+// ROTA 2: INSTAGRAM (V8 - HÍBRIDO GEOMÉTRICO + INJECT)
 // ==========================================
 app.post('/instagram', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -202,7 +203,7 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
     };
 
     try {
-        console.log('--- INICIANDO INSTAGRAM (V7 - Input Injection) ---');
+        console.log('--- INICIANDO INSTAGRAM (V8 - Hybrid) ---');
         const { legenda, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -230,86 +231,93 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
         await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
         await new Promise(r => setTimeout(r, 6000));
 
-        // --- 1. REMOÇÃO DE BANNERS QUE ATRAPALHAM ---
-        console.log('[Insta] Removendo banners (Use App/Cookies)...');
+        // --- 1. REMOÇÃO DE BANNERS ---
+        console.log('[Insta] Limpeza visual...');
         await page.evaluate(() => {
-            // Remove banners de "Use o App", Cookie banners, etc
-            const selectors = ['div[role="dialog"]', 'div.x1n2onr6', '[aria-label="Use the app"]', 'div._aagw'];
-            selectors.forEach(sel => {
-                const els = document.querySelectorAll(sel);
-                els.forEach(el => el.remove());
-            });
-            // Tenta clicar no X de banners padrão
+            const sels = ['div[role="dialog"]', 'div.x1n2onr6', '[aria-label="Use the app"]', 'div._aagw', '.x1lliihq'];
+            sels.forEach(s => document.querySelectorAll(s).forEach(e => e.remove()));
             const closeBtns = document.querySelectorAll('button._a9--');
             closeBtns.forEach(b => b.click());
         });
         await new Promise(r => setTimeout(r, 1000));
 
-        // --- 2. TENTATIVA DE CLICK E UPLOAD VIA INPUT ---
-        console.log('[Insta] Preparando upload...');
+        // --- 2. LOCALIZAR BOTÃO (+) VIA GEOMETRIA (V6 Lógica) ---
+        console.log('[Insta] Escaneando posição do botão...');
         
-        // Estratégia: Não espera FileChooser. Acha o Input Hidden.
-        // Clica no botão (+) via Javascript puro para "acordar" o DOM
-        const btnClicked = await page.evaluate(() => {
-            const btn = document.querySelector('svg[aria-label="New post"], svg[aria-label="Nova publicação"], svg[aria-label="Create"]');
-            if (btn) {
-                const parent = btn.closest('div[role="button"]') || btn.parentElement;
-                parent.click();
-                return true;
+        const btnLocation = await page.evaluate(() => {
+            const width = window.innerWidth;
+            const scanZone = { xMin: width - 100, yMax: 70 };
+            const svgs = Array.from(document.querySelectorAll('svg'));
+            
+            // Procura o SVG no canto superior direito
+            for (const svg of svgs) {
+                const rect = svg.getBoundingClientRect();
+                if (rect.x > scanZone.xMin && rect.y < scanZone.yMax && rect.width > 15) {
+                    return { x: rect.x + (rect.width / 2), y: rect.y + (rect.height / 2), found: true };
+                }
             }
-            return false;
+            return { found: false, x: 355, y: 45 }; // Fallback XY
         });
 
-        if (!btnClicked) {
-            // Fallback: Clique XY se o seletor falhar
-            console.log('[Insta] Clique JS falhou, tentando XY...');
-            await page.touchscreen.tap(355, 45);
+        console.log(`[Insta] Alvo em X:${btnLocation.x}, Y:${btnLocation.y}. Atacando...`);
+
+        // --- 3. ATAQUE DE CLIQUE (Click + Tap + Event) ---
+        // Tenta abrir o modal clicando de todas as formas
+        let inputFound = false;
+        
+        for(let attempt = 0; attempt < 3; attempt++) {
+            // Ação 1: Tap Touchscreen
+            await page.touchscreen.tap(btnLocation.x, btnLocation.y);
+            await new Promise(r => setTimeout(r, 500));
+            
+            // Ação 2: Clique Mouse
+            await page.mouse.click(btnLocation.x, btnLocation.y);
+            await new Promise(r => setTimeout(r, 1500)); // Espera modal abrir
+
+            // Checa se o input apareceu
+            const fileInput = await page.$('input[type="file"]');
+            if (fileInput) {
+                console.log('[Insta] Input detectado! Injetando arquivo...');
+                await fileInput.uploadFile(imagePath);
+                await page.evaluate(() => {
+                    const i = document.querySelector('input[type="file"]');
+                    if(i) i.dispatchEvent(new Event('change', { bubbles: true }));
+                });
+                inputFound = true;
+                break;
+            } else {
+                console.log(`[Insta] Tentativa ${attempt+1} falhou. Tentando de novo...`);
+            }
         }
 
-        await new Promise(r => setTimeout(r, 2000)); // Espera o input ser criado no DOM
-
-        console.log('[Insta] Caçando input[type="file"]...');
-        // Procura o input de arquivo que o Instagram cria (mesmo que invisível)
-        const fileInput = await page.$('input[type="file"]');
-        
-        if (fileInput) {
-            console.log('[Insta] INPUT ENCONTRADO! Injetando arquivo direto...');
-            await fileInput.uploadFile(imagePath);
-            // Às vezes precisa disparar o evento 'change' manualmente
-            await page.evaluate(() => {
-                const input = document.querySelector('input[type="file"]');
-                if (input) input.dispatchEvent(new Event('change', { bubbles: true }));
-            });
-        } else {
-            // Se não achou o input, tenta o método tradicional com timeout curto
-            console.log('[Insta] Input não achado. Tentando FileChooser tradicional...');
-            try {
+        if (!inputFound) {
+             // Última chance: Tenta FileChooser tradicional se o Input Injection falhou
+             console.log('[Insta] Input não abriu. Tentando FileChooser tradicional...');
+             try {
                 const [fileChooser] = await Promise.all([
                     page.waitForFileChooser({ timeout: 5000 }),
-                    page.touchscreen.tap(355, 45), // Tenta clicar de novo
+                    page.touchscreen.tap(btnLocation.x, btnLocation.y),
                 ]);
                 await fileChooser.accept([imagePath]);
-            } catch (e) {
-                return await abortWithProof(page, 'Falha fatal: Nem Input Hidden nem FileChooser funcionaram.');
-            }
+                inputFound = true;
+             } catch(e) {
+                return await abortWithProof(page, 'Não consegui abrir a janela de upload.');
+             }
         }
 
         console.log('[Insta] Arquivo enviado! Aguardando preview...');
         await new Promise(r => setTimeout(r, 8000));
 
-        // --- 3. FLUXO DE POSTAGEM (NEXT -> NEXT -> SHARE) ---
+        // --- 4. POSTAGEM (NEXT -> NEXT -> SHARE) ---
         
-        // Verifica se carregou o editor (botão Next aparece)
-        let nextFound = await tapByText(page, ['Next', 'Avançar']);
-        if (!nextFound) {
-            // Tenta clicar no topo direito (XY)
-            console.log('[Insta] Botão Next não lido. Clicando XY...');
-            await page.touchscreen.tap(360, 45);
-        }
+        // Next 1
+        console.log('[Insta] Avançar 1...');
+        let next1 = await tapByText(page, ['Next', 'Avançar']);
+        if (!next1) await page.touchscreen.tap(360, 45); // Topo direito
         await new Promise(r => setTimeout(r, 4000));
 
-        // Filtros (Avançar 2)
-        console.log('[Insta] Avançar 2 (Filtros)...');
+        // Next 2
+        console.log('[Insta] Avançar 2...');
         let next2 = await tapByText(page, ['Next', 'Avançar']);
         if (!next2) await page.touchscreen.tap(360, 45);
         await new Promise(r => setTimeout(r, 4000));
@@ -321,18 +329,16 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
                 const textArea = await page.waitForSelector('textarea, div[role="textbox"]', { timeout: 5000 });
                 await textArea.tap();
                 await textArea.type(legenda, { delay: 50 });
-            } catch(e) {
-                console.log('[Insta] Erro legenda (não impede post): ' + e.message);
-            }
+            } catch(e) {}
         }
 
-        // Compartilhar
+        // Share
         console.log('[Insta] Compartilhando...');
         let shared = await tapByText(page, ['Share', 'Compartilhar']);
         if (!shared) await page.touchscreen.tap(360, 45);
 
-        await new Promise(r => setTimeout(r, 15000)); // Espera upload final
-        console.log('[Insta] PROCESSO FINALIZADO!');
+        await new Promise(r => setTimeout(r, 15000));
+        console.log('[Insta] SUCESSO!');
         
         const finalImg = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
         res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': finalImg.length });
