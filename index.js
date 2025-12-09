@@ -21,7 +21,7 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('⚠️ PROMESSA REJEITADA:', reason);
 });
 
-const server = app.listen(PORT, () => console.log(`Super Bot V13 (Clipboard Paste) rodando na porta ${PORT} 🛡️`));
+const server = app.listen(PORT, () => console.log(`Super Bot V14 (Tab Hunter) rodando na porta ${PORT} 🛡️`));
 server.setTimeout(600000); 
 
 app.use(express.json({ limit: '100mb' }));
@@ -39,7 +39,7 @@ async function downloadImage(url) {
 }
 
 // Rota de Teste
-app.get('/', (req, res) => res.send('Super Bot V13 Online (Clipboard Mode) 🛡️'));
+app.get('/', (req, res) => res.send('Super Bot V14 Online (Tab Hunter) 🛡️'));
 
 // --- FUNÇÃO AUXILIAR: CLIQUE ROBUSTO ---
 async function clickByText(page, textsToFind, tag = '*') {
@@ -62,12 +62,11 @@ async function clickByText(page, textsToFind, tag = '*') {
 // ROTA 1: LINKEDIN (MANTIDA)
 // ==========================================
 app.post('/publicar', upload.single('imagem'), async (req, res) => {
-    // ... Código LinkedIn mantido ...
     res.status(200).send("Use a rota /instagram"); 
 });
 
 // ==========================================
-// ROTA 2: INSTAGRAM (V13 - CLIPBOARD PASTE)
+// ROTA 2: INSTAGRAM (V14 - TAB HUNTER)
 // ==========================================
 app.post('/instagram', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -87,16 +86,12 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
     };
 
     try {
-        console.log('--- INICIANDO INSTAGRAM (V13) ---');
+        console.log('--- INICIANDO INSTAGRAM (V14 - TAB HUNTER) ---');
         const { legenda, cookies, imagemUrl } = req.body;
         
-        // --- CHECK DE DEBUG ---
-        if (!legenda) {
-            console.log('⚠️ [ALERTA CRÍTICO] Variável "legenda" veio VAZIA ou UNDEFINED.');
-            console.log('Verifique se o parâmetro no n8n se chama exatamente "legenda" (minúsculo).');
-        } else {
-            console.log(`✅ Legenda recebida: "${legenda.substring(0, 20)}..." (${legenda.length} chars)`);
-        }
+        // Debug da Legenda
+        if (!legenda) console.log('⚠️ AVISO: Legenda vazia!');
+        else console.log(`✅ Legenda recebida: ${legenda.length} caracteres.`);
 
         if (!imagePath && imagemUrl) {
             try { imagePath = await downloadImage(imagemUrl); } catch (e) {}
@@ -112,16 +107,11 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
                 '--disable-setuid-sandbox', 
                 '--disable-dev-shm-usage',
                 '--window-size=1366,768', 
-                '--start-maximized',
-                '--disable-features=IsolateOrigins,site-per-process' // Ajuda na manipulação do DOM
+                '--start-maximized'
             ],
             defaultViewport: { width: 1366, height: 768 },
             timeout: 60000
         });
-
-        // Permissão de Clipboard para o Browser Context
-        const context = browser.defaultBrowserContext();
-        await context.overridePermissions('https://www.instagram.com', ['clipboard-read', 'clipboard-write']);
 
         page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
@@ -130,9 +120,9 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
         const cookiesJson = typeof cookies === 'string' ? JSON.parse(cookies) : cookies;
         if (Array.isArray(cookiesJson)) await page.setCookie(...cookiesJson);
 
-        console.log('[Insta] Acessando Home...');
+        console.log('[Insta] Home...');
         await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-        await new Promise(r => setTimeout(r, 5000));
+        await new Promise(r => setTimeout(r, 6000));
 
         // Popups
         await clickByText(page, ['Not Now', 'Agora não', 'Cancel']);
@@ -181,55 +171,50 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
         if (!next2) return await abortWithProof(page, 'Travou nos Filtros.');
         
         console.log('[Insta] Tela final. Aguardando campo...');
-        await new Promise(r => setTimeout(r, 5000)); 
+        await new Promise(r => setTimeout(r, 6000)); 
 
-        // --- LEGENDA (CLIPBOARD STRATEGY) ---
+        // --- LEGENDA (TAB HUNTER) ---
         if (legenda && legenda.trim().length > 0) {
-            console.log('[Insta] Preparando colar legenda...');
-            try {
-                // 1. Encontra a área de texto (Seletor Universal)
-                // Procura div com aria-label ou role=textbox
-                const selectors = [
-                    'div[aria-label="Write a caption..."]',
-                    'div[aria-label="Escreva uma legenda..."]',
-                    'div[role="textbox"][contenteditable="true"]'
-                ];
+            console.log('[Insta] Iniciando caçada de foco via TAB...');
+            
+            // 1. Clica no modal (geral) para garantir foco na janela
+            await page.mouse.click(800, 400); 
+            await new Promise(r => setTimeout(r, 500));
+
+            // 2. Loop de TABs até achar o contenteditable
+            let found = false;
+            for (let i = 0; i < 15; i++) { // Tenta apertar TAB 15 vezes
+                await page.keyboard.press('Tab');
+                await new Promise(r => setTimeout(r, 300));
+
+                const isEditable = await page.evaluate(() => {
+                    const el = document.activeElement;
+                    return el && el.getAttribute('contenteditable') === 'true';
+                });
+
+                if (isEditable) {
+                    console.log(`[Insta] Campo encontrado na tentativa ${i+1} de TAB!`);
+                    found = true;
+                    break;
+                }
+            }
+
+            if (found) {
+                console.log('[Insta] Digitando...');
+                // Digita devagar para garantir
+                await page.keyboard.type(legenda, { delay: 50 });
+                console.log('[Insta] Digitação concluída.');
                 
-                let textArea = null;
-                for (const sel of selectors) {
-                    try {
-                        textArea = await page.waitForSelector(sel, { visible: true, timeout: 2000 });
-                        if (textArea) break;
-                    } catch(e){}
-                }
-
-                if (textArea) {
-                    console.log('[Insta] Campo focado. Copiando texto para clipboard...');
-                    await textArea.click();
-                    await new Promise(r => setTimeout(r, 1000)); // Espera foco
-
-                    // 2. Coloca o texto no Clipboard do Browser (via JS)
-                    // Isso ignora problemas de emulação de teclado
-                    await page.evaluate((text) => {
-                        navigator.clipboard.writeText(text);
-                    }, legenda);
-                    
-                    await new Promise(r => setTimeout(r, 500));
-
-                    // 3. Executa o comando PASTE (CTRL+V)
-                    console.log('[Insta] Executando CTRL+V...');
-                    await page.keyboard.down('Control');
-                    await page.keyboard.press('V');
-                    await page.keyboard.up('Control');
-                    
-                    console.log('[Insta] Colado!');
-                    await new Promise(r => setTimeout(r, 2000));
-
-                } else {
-                    console.log('[Insta] ERRO: Não achei o campo de texto visualmente.');
-                }
-            } catch(e) {
-                console.log(`[Insta] ERRO CRÍTICO NA LEGENDA: ${e.message}`);
+                // VERIFICAÇÃO: Tira print aqui para sabermos se escreveu
+                const debugShot = await page.screenshot({ type: 'jpeg', quality: 50 });
+                // (Opcional: salvaríamos em disco, mas vamos confiar no fluxo)
+            } else {
+                console.log('[Insta] ERRO: Não consegui focar no campo usando TAB.');
+                // Tenta fallback desesperado: Clicar na coordenada provável do campo
+                console.log('[Insta] Tentando clique por coordenada (Fallback)...');
+                await page.mouse.click(950, 350); // Coordenada aproximada do campo no desktop 1366x768
+                await new Promise(r => setTimeout(r, 500));
+                await page.keyboard.type(legenda, { delay: 50 });
             }
         } else {
             console.log('[Insta] PULEI LEGENDA (Vazia).');
@@ -246,7 +231,7 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
             console.log('[Insta] Postando...');
             await new Promise(r => setTimeout(r, 15000)); 
             
-            // Verifica sucesso visual
+            // Sucesso
             const success = await clickByText(page, ['Post shared', 'Publicação compartilhada', 'Your post has been shared'], 'span');
             if (success) console.log('[Insta] Confirmado!');
             
