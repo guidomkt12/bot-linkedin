@@ -21,7 +21,7 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('⚠️ PROMESSA REJEITADA:', reason);
 });
 
-const server = app.listen(PORT, () => console.log(`Super Bot V9.1 (Desktop + Legenda Fix) rodando na porta ${PORT} 🛡️`));
+const server = app.listen(PORT, () => console.log(`Super Bot V9.2 (Legenda Inject) rodando na porta ${PORT} 🛡️`));
 server.setTimeout(600000); 
 
 app.use(express.json({ limit: '100mb' }));
@@ -39,7 +39,7 @@ async function downloadImage(url) {
 }
 
 // Rota de Teste
-app.get('/', (req, res) => res.send('Super Bot V9.1 Online (Legenda Fix) 🛡️'));
+app.get('/', (req, res) => res.send('Super Bot V9.2 Online (InsertText Fix) 🛡️'));
 
 // --- FUNÇÃO AUXILIAR: CLIQUE POR TEXTO ---
 async function clickByText(page, textsToFind, tag = '*') {
@@ -79,7 +79,7 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
     };
 
     try {
-        console.log('--- INICIANDO LINKEDIN (V9.1) ---');
+        console.log('--- INICIANDO LINKEDIN (V9.2) ---');
         const { texto, paginaUrl, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -182,7 +182,7 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
 });
 
 // ==========================================
-// ROTA 2: INSTAGRAM (V9.1 - DESKTOP + LEGENDA FIX)
+// ROTA 2: INSTAGRAM (V9.2 - LEGENDA NUCLEAR)
 // ==========================================
 app.post('/instagram', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -202,7 +202,7 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
     };
 
     try {
-        console.log('--- INICIANDO INSTAGRAM (V9.1 - Desktop) ---');
+        console.log('--- INICIANDO INSTAGRAM (V9.2 - Desktop Inject) ---');
         const { legenda, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -286,28 +286,39 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
         console.log('[Insta] Next 2...');
         let next2 = await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]');
         if(!next2) next2 = await clickByText(page, ['Next', 'Avançar'], 'button');
-        await new Promise(r => setTimeout(r, 4000)); // Espera transição para tela de legenda
+        await new Promise(r => setTimeout(r, 4000));
 
-        // --- 5. LEGENDA (CORRIGIDO) ---
+        // --- 5. LEGENDA (MÉTODO NUCLEAR: INSERT_TEXT) ---
         if (legenda) {
-            console.log('[Insta] Escrevendo legenda...');
+            console.log('[Insta] Escrevendo legenda (Modo Inject)...');
             try {
-                // Seletor genérico + específico de idioma
-                const captionSelectors = 'div[aria-label="Escreva uma legenda..."], div[aria-label="Write a caption..."], div[role="textbox"][contenteditable="true"]';
+                // Procura qualquer área editável dentro do modal ativo
+                // O seletor 'div[role="dialog"] div[contenteditable="true"]' é tiro certo no modal
+                const textAreaSelector = 'div[role="dialog"] div[contenteditable="true"], div[aria-label="Write a caption..."], div[aria-label="Escreva uma legenda..."]';
                 
-                const textArea = await page.waitForSelector(captionSelectors, { visible: true, timeout: 6000 });
+                // Espera aparecer
+                const textArea = await page.waitForSelector(textAreaSelector, { visible: true, timeout: 6000 });
                 
                 if (textArea) {
-                    await textArea.click(); // Clica para focar
-                    await new Promise(r => setTimeout(r, 1000)); // Espera foco
+                    await textArea.click(); // Clica para dar foco
+                    await new Promise(r => setTimeout(r, 1000)); // Espera o cursor piscar
                     
-                    // Digita usando o teclado (mais confiável para divs rich-text)
-                    await page.keyboard.type(legenda, { delay: 50 });
+                    // --- O PULO DO GATO ---
+                    // Em vez de digitar, usamos o comando de colar do navegador.
+                    // Isso ignora se o campo é React, Vue, ou o que for.
+                    await page.evaluate((txt, sel) => {
+                        const el = document.querySelector(sel);
+                        if (el) el.focus();
+                        // Simula um "Colar" (Paste)
+                        document.execCommand('insertText', false, txt);
+                    }, legenda, textAreaSelector);
+
+                    console.log('[Insta] Legenda injetada via execCommand.');
                 } else {
-                    console.log('[Insta] Aviso: Campo de legenda não encontrado pelo seletor.');
+                    console.log('[Insta] ERRO: Campo de legenda não encontrado.');
                 }
             } catch(e) {
-                console.log('[Insta] Erro ao escrever legenda: ' + e.message);
+                console.log('[Insta] Erro fatal na legenda: ' + e.message);
             }
         }
 
