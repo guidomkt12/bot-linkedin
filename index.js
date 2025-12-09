@@ -174,4 +174,86 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
         let next2 = await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]');
         if(!next2) next2 = await clickByText(page, ['Next', 'Avançar'], 'button');
         
-        if (!next2) return await abortWithProof(page, 'Travou
+        if (!next2) return await abortWithProof(page, 'Travou na tela de filtros.');
+        
+        console.log('[Insta] Chegando na tela final. Aguardando renderização...');
+        await new Promise(r => setTimeout(r, 5000)); // ESSENCIAL: Espera o campo de texto aparecer
+
+        // --- ESCRITA DA LEGENDA ---
+        if (legenda) {
+            console.log('[Insta] Procurando campo de texto...');
+            try {
+                // Seletor universal para a área de texto do Instagram Desktop
+                const textAreaSelector = 'div[role="dialog"] div[contenteditable="true"][role="textbox"]';
+                
+                // Espera visibilidade
+                await page.waitForSelector(textAreaSelector, { visible: true, timeout: 10000 });
+                
+                console.log('[Insta] Campo encontrado. Focando...');
+                await page.click(textAreaSelector);
+                await new Promise(r => setTimeout(r, 1000));
+                
+                // Estratégia Híbrida: Digita um espaço para acordar o React, depois cola o texto
+                console.log('[Insta] Digitando...');
+                await page.keyboard.press('Space'); // Acorda o campo
+                await new Promise(r => setTimeout(r, 500));
+                await page.keyboard.press('Backspace'); // Apaga o espaço
+                
+                // Digita letra por letra (Método mais seguro para React)
+                // Se o texto for muito longo, pode demorar, mas é o que garante funcionar
+                if (legenda.length > 500) {
+                     // Se for texto longo, usa colar
+                     await page.keyboard.type(legenda.substring(0, 5), { delay: 100 }); // Digita o começo
+                     await page.evaluate((txt) => navigator.clipboard.writeText(txt), legenda.substring(5)); // Copia o resto
+                     await page.keyboard.down('Control');
+                     await page.keyboard.press('V');
+                     await page.keyboard.up('Control');
+                } else {
+                     // Texto curto/médio digita tudo
+                     await page.keyboard.type(legenda, { delay: 50 });
+                }
+
+                console.log('[Insta] Texto inserido.');
+            } catch(e) {
+                console.log(`[Insta] ERRO AO DIGITAR: ${e.message}`);
+                // Tenta fallback: Clicar na área geral se o seletor específico falhou
+                try {
+                    await page.click('div[aria-label="Write a caption..."]');
+                    await page.keyboard.type(legenda, { delay: 50 });
+                } catch(err2) {}
+            }
+        } else {
+            console.log('[Insta] PULEI A LEGENDA POIS A VARIÁVEL ESTÁ VAZIA.');
+        }
+
+        // --- SHARE ---
+        console.log('[Insta] Clicando em Compartilhar...');
+        await new Promise(r => setTimeout(r, 2000));
+        
+        let share = await clickByText(page, ['Share', 'Compartilhar'], 'div[role="button"]');
+        if(!share) share = await clickByText(page, ['Share', 'Compartilhar'], 'button');
+
+        if (share) {
+            console.log('[Insta] Enviando...');
+            await new Promise(r => setTimeout(r, 15000)); // Tempo para upload da imagem
+            
+            // Verifica sucesso
+            const success = await clickByText(page, ['Post shared', 'Publicação compartilhada', 'Your post has been shared'], 'span');
+            if (success) console.log('[Insta] Confirmação visual de sucesso!');
+            
+            console.log('[Insta] SUCESSO FINAL!');
+            const finalImg = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
+            res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': finalImg.length });
+            res.end(finalImg);
+        } else {
+            return await abortWithProof(page, 'Botão Compartilhar sumiu ou legenda travou.');
+        }
+
+    } catch (error) {
+        if (page) await abortWithProof(page, error.message);
+        else res.status(500).json({ erro: error.message });
+    } finally {
+        if (browser) await browser.close();
+        if (imagePath) await fs.remove(imagePath).catch(()=>{});
+    }
+});
