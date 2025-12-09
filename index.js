@@ -15,7 +15,7 @@ const PORT = process.env.PORT || 80;
 const upload = multer({ dest: '/tmp/uploads/' });
 
 // Inicia servidor
-const server = app.listen(PORT, () => console.log(`Super Bot V2 (Anti-Popups) rodando na porta ${PORT} 🧹`));
+const server = app.listen(PORT, () => console.log(`Super Bot V3 (Fix Instagram) rodando na porta ${PORT} 🔧`));
 server.setTimeout(600000); 
 
 app.use(express.json({ limit: '100mb' }));
@@ -32,10 +32,29 @@ async function downloadImage(url) {
     });
 }
 
-app.get('/', (req, res) => res.send('Super Bot V2 Online 🧹'));
+app.get('/', (req, res) => res.send('Super Bot V3 Online 🔧'));
+
+// --- FUNÇÃO AUXILIAR: CLICAR POR TEXTO (SUBSTITUI O $x QUEBRADO) ---
+async function clickByText(page, textsToFind) {
+    try {
+        const clicked = await page.evaluate((texts) => {
+            // Pega todos os elementos que podem ser botões
+            const elements = [...document.querySelectorAll('button, div[role="button"], span, a')];
+            for (const el of elements) {
+                // Verifica se o texto do elemento contém alguma das palavras chave
+                if (texts.some(t => el.innerText && el.innerText.toLowerCase().includes(t.toLowerCase()))) {
+                    el.click();
+                    return true;
+                }
+            }
+            return false;
+        }, textsToFind);
+        return clicked;
+    } catch (e) { return false; }
+}
 
 // ==========================================
-// ROTA 1: LINKEDIN (V33 - INTACTA)
+// ROTA 1: LINKEDIN (MANTIDA IGUAL V33)
 // ==========================================
 app.post('/publicar', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -160,7 +179,7 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
 });
 
 // ==========================================
-// ROTA 2: INSTAGRAM (ATUALIZADA ANTI-POPUP)
+// ROTA 2: INSTAGRAM (CORRIGIDA)
 // ==========================================
 app.post('/instagram', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -180,7 +199,7 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
     };
 
     try {
-        console.log('--- INICIANDO INSTAGRAM ---');
+        console.log('--- INICIANDO INSTAGRAM V3 ---');
         const { legenda, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -213,32 +232,26 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
             return await abortWithProof(page, 'Caiu no Login. Cookies inválidos.');
         }
 
-        // --- LIMPEZA DE POPUPS (O SEGREDO) ---
-        console.log('[Insta] Varrendo popups...');
-        // Procura botões com textos comuns de recusa em EN e PT
-        const popupTexts = [
-            "Not now", "Not Now", "Agora não", "Agora nao", 
-            "Cancel", "Cancelar", "Salvar informações", "Save info"
-        ];
-
-        // Tenta clicar 3 vezes seguidas caso apareçam múltiplos popups
+        // --- LIMPEZA DE POPUPS (COM FUNÇÃO SEGURA) ---
+        console.log('[Insta] Varrendo popups ("Agora não", "Cancelar", "Not now")...');
+        
+        // Tenta limpar a tela 3 vezes
         for (let i = 0; i < 3; i++) {
-            const buttons = await page.$x("//button | //div[@role='button']");
-            for (const btn of buttons) {
-                const text = await page.evaluate(el => el.textContent, btn);
-                if (text && (text.includes('Not now') || text.includes('Agora não') || text.includes('Cancel') || text.includes('Cancelar'))) {
-                    console.log(`[Insta] Fechando popup: ${text}`);
-                    await btn.click();
-                    await new Promise(r => setTimeout(r, 1500));
-                }
+            const popupClosed = await clickByText(page, ['Not now', 'Agora não', 'Agora nao', 'Cancel', 'Cancelar']);
+            if (popupClosed) {
+                console.log(`[Insta] Popup fechado! Tentativa ${i+1}`);
+                await new Promise(r => setTimeout(r, 2000));
             }
         }
 
+        // Tenta clicar no centro da tela para fechar modais soltos
+        try { await page.mouse.click(200, 300); } catch(e){}
+
         console.log('[Insta] Procurando botão (+)...');
+        // Seletores de ícone mobile
         const newPostSelectors = ['svg[aria-label="New post"]', 'svg[aria-label="Nova publicação"]', 'svg[aria-label="Criar"]'];
         let uploadBtn = null;
         
-        // Tenta achar o botão (+)
         for (const sel of newPostSelectors) {
             try {
                 const el = await page.$(sel);
@@ -249,29 +262,25 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
             } catch(e){}
         }
 
-        if (!uploadBtn) {
-            // Se não achou, pode ser que ainda tenha popup. Tenta clicar no meio da tela para fechar modais
-            await page.mouse.click(200, 200);
-            return await abortWithProof(page, 'Não achei botão (+) mesmo após limpar popups.');
-        }
+        if (!uploadBtn) return await abortWithProof(page, 'Não achei botão (+). Veja o print se ainda tem popup.');
 
         const fileChooserPromise = page.waitForFileChooser();
         await uploadBtn.click();
         console.log('[Insta] Enviando arquivo...');
         const fileChooser = await fileChooserPromise;
         await fileChooser.accept([imagePath]);
-        await new Promise(r => setTimeout(r, 6000));
+        await new Promise(r => setTimeout(r, 5000));
 
         // Avançar 1
         console.log('[Insta] Avançar 1...');
-        let nextBtn = await page.$x("//div[contains(text(), 'Next') or contains(text(), 'Avançar')]");
-        if (nextBtn.length > 0) { await nextBtn[0].click(); await new Promise(r => setTimeout(r, 3000)); } 
-        else return await abortWithProof(page, 'Botão Avançar 1 não achado.');
+        const clickedNext1 = await clickByText(page, ['Next', 'Avançar']);
+        if (!clickedNext1) return await abortWithProof(page, 'Botão Avançar 1 não achado.');
+        await new Promise(r => setTimeout(r, 3000));
 
         // Avançar 2
         console.log('[Insta] Avançar 2...');
-        nextBtn = await page.$x("//div[contains(text(), 'Next') or contains(text(), 'Avançar')]");
-        if (nextBtn.length > 0) { await nextBtn[0].click(); await new Promise(r => setTimeout(r, 3000)); }
+        await clickByText(page, ['Next', 'Avançar']);
+        await new Promise(r => setTimeout(r, 3000));
 
         // Legenda
         if (legenda) {
@@ -284,10 +293,10 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
 
         // Compartilhar
         console.log('[Insta] Compartilhando...');
-        const shareBtn = await page.$x("//div[contains(text(), 'Share') or contains(text(), 'Compartilhar')]");
-        if (shareBtn.length > 0) {
-            await shareBtn[0].click();
-            await new Promise(r => setTimeout(r, 12000));
+        const clickedShare = await clickByText(page, ['Share', 'Compartilhar']);
+        
+        if (clickedShare) {
+            await new Promise(r => setTimeout(r, 10000));
             console.log('[Insta] SUCESSO!');
             const finalImg = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
             res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': finalImg.length });
