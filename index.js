@@ -1,7 +1,7 @@
 const express = require('express');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
-const { KnownDevices } = require('puppeteer'); 
+// Removemos o KnownDevices pois não vamos mais emular celular
 puppeteer.use(StealthPlugin());
 
 const multer = require('multer');
@@ -22,7 +22,7 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('⚠️ PROMESSA REJEITADA:', reason);
 });
 
-const server = app.listen(PORT, () => console.log(`Super Bot V8 (Hybrid Aggressive) rodando na porta ${PORT} 🛡️`));
+const server = app.listen(PORT, () => console.log(`Super Bot V9 (Desktop Mode) rodando na porta ${PORT} 🛡️`));
 server.setTimeout(600000); 
 
 app.use(express.json({ limit: '100mb' }));
@@ -40,27 +40,30 @@ async function downloadImage(url) {
 }
 
 // Rota de Teste
-app.get('/', (req, res) => res.send('Super Bot V8 Online (Hybrid) 🛡️'));
+app.get('/', (req, res) => res.send('Super Bot V9 Online (Desktop Logic) 🛡️'));
 
-// --- FUNÇÃO AUXILIAR: TAP POR TEXTO ---
-async function tapByText(page, textsToFind) {
+// --- FUNÇÃO AUXILIAR: CLIQUE POR TEXTO (ROBUSTA) ---
+async function clickByText(page, textsToFind, tag = '*') {
     try {
-        return await page.evaluate((texts) => {
-            const elements = [...document.querySelectorAll('button, div[role="button"], span, a, h1, div')];
+        return await page.evaluate((texts, tagName) => {
+            // Procura em botões, spans, divs e a (links)
+            const elements = [...document.querySelectorAll(tagName)];
             for (const el of elements) {
+                // Pega texto visível ou aria-label
                 const txt = el.innerText || el.getAttribute('aria-label') || '';
+                // Verifica se contem algum dos textos procurados
                 if (texts.some(t => txt.toLowerCase().includes(t.toLowerCase()))) {
                     el.click();
                     return true;
                 }
             }
             return false;
-        }, textsToFind);
+        }, textsToFind, tag);
     } catch (e) { return false; }
 }
 
 // ==========================================
-// ROTA 1: LINKEDIN (MANTIDA)
+// ROTA 1: LINKEDIN (MANTIDA IGUAL)
 // ==========================================
 app.post('/publicar', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -80,7 +83,7 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
     };
 
     try {
-        console.log('--- INICIANDO LINKEDIN (V8) ---');
+        console.log('--- INICIANDO LINKEDIN (V9) ---');
         const { texto, paginaUrl, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -183,7 +186,7 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
 });
 
 // ==========================================
-// ROTA 2: INSTAGRAM (V8 - HÍBRIDO GEOMÉTRICO + INJECT)
+// ROTA 2: INSTAGRAM (V9 - MODO DESKTOP)
 // ==========================================
 app.post('/instagram', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -203,7 +206,7 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
     };
 
     try {
-        console.log('--- INICIANDO INSTAGRAM (V8 - Hybrid) ---');
+        console.log('--- INICIANDO INSTAGRAM (V9 - Desktop) ---');
         const { legenda, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -215,13 +218,21 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
 
         browser = await puppeteer.launch({
             headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-features=IsolateOrigins,site-per-process'],
+            // Argumentos otimizados para Desktop Linux/Docker
+            args: [
+                '--no-sandbox', 
+                '--disable-setuid-sandbox', 
+                '--disable-dev-shm-usage',
+                '--window-size=1366,768', // Resolução de Laptop Comum
+                '--start-maximized'
+            ],
+            defaultViewport: { width: 1366, height: 768 },
             timeout: 60000
         });
 
         page = await browser.newPage();
-        const iPhone = KnownDevices['iPhone 12 Pro'];
-        await page.emulate(iPhone);
+        // User Agent de Windows PC para garantir interface Desktop
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
 
         console.log('[Insta] Cookies...');
         const cookiesJson = typeof cookies === 'string' ? JSON.parse(cookies) : cookies;
@@ -231,118 +242,107 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
         await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
         await new Promise(r => setTimeout(r, 6000));
 
-        // --- 1. REMOÇÃO DE BANNERS ---
-        console.log('[Insta] Limpeza visual...');
-        await page.evaluate(() => {
-            const sels = ['div[role="dialog"]', 'div.x1n2onr6', '[aria-label="Use the app"]', 'div._aagw', '.x1lliihq'];
-            sels.forEach(s => document.querySelectorAll(s).forEach(e => e.remove()));
-            const closeBtns = document.querySelectorAll('button._a9--');
-            closeBtns.forEach(b => b.click());
-        });
-        await new Promise(r => setTimeout(r, 1000));
+        // --- 1. LIMPEZA DE POPUPS (DESKTOP) ---
+        console.log('[Insta] Verificando notificações...');
+        // No desktop, costuma aparecer "Ativar Notificações". Clicamos em "Agora não".
+        await clickByText(page, ['Not Now', 'Agora não', 'Agora nao', 'Cancel']);
+        await new Promise(r => setTimeout(r, 2000));
 
-        // --- 2. LOCALIZAR BOTÃO (+) VIA GEOMETRIA (V6 Lógica) ---
-        console.log('[Insta] Escaneando posição do botão...');
+        // --- 2. ABRIR MODAL DE CRIAÇÃO ---
+        console.log('[Insta] Buscando botão (+) na barra lateral...');
         
-        const btnLocation = await page.evaluate(() => {
-            const width = window.innerWidth;
-            const scanZone = { xMin: width - 100, yMax: 70 };
-            const svgs = Array.from(document.querySelectorAll('svg'));
-            
-            // Procura o SVG no canto superior direito
-            for (const svg of svgs) {
-                const rect = svg.getBoundingClientRect();
-                if (rect.x > scanZone.xMin && rect.y < scanZone.yMax && rect.width > 15) {
-                    return { x: rect.x + (rect.width / 2), y: rect.y + (rect.height / 2), found: true };
-                }
-            }
-            return { found: false, x: 355, y: 45 }; // Fallback XY
-        });
-
-        console.log(`[Insta] Alvo em X:${btnLocation.x}, Y:${btnLocation.y}. Atacando...`);
-
-        // --- 3. ATAQUE DE CLIQUE (Click + Tap + Event) ---
-        // Tenta abrir o modal clicando de todas as formas
-        let inputFound = false;
+        // No desktop, o botão Criar é um item da sidebar esquerda.
+        // Procuramos pelo SVG ou pelo Texto "Create"/"Criar"
+        let createBtnFound = false;
         
-        for(let attempt = 0; attempt < 3; attempt++) {
-            // Ação 1: Tap Touchscreen
-            await page.touchscreen.tap(btnLocation.x, btnLocation.y);
-            await new Promise(r => setTimeout(r, 500));
-            
-            // Ação 2: Clique Mouse
-            await page.mouse.click(btnLocation.x, btnLocation.y);
-            await new Promise(r => setTimeout(r, 1500)); // Espera modal abrir
+        // Tenta pelo SVG específico do Desktop
+        const createSelector = 'svg[aria-label="New post"], svg[aria-label="Nova publicação"], svg[aria-label="Create"], svg[aria-label="Criar"]';
+        if (await page.$(createSelector)) {
+            await page.click(createSelector);
+            createBtnFound = true;
+        } else {
+            // Fallback: Procura pelo texto "Criar" na sidebar
+            createBtnFound = await clickByText(page, ['Create', 'Criar'], 'span');
+        }
 
-            // Checa se o input apareceu
-            const fileInput = await page.$('input[type="file"]');
-            if (fileInput) {
-                console.log('[Insta] Input detectado! Injetando arquivo...');
-                await fileInput.uploadFile(imagePath);
-                await page.evaluate(() => {
-                    const i = document.querySelector('input[type="file"]');
-                    if(i) i.dispatchEvent(new Event('change', { bubbles: true }));
-                });
-                inputFound = true;
-                break;
+        if (!createBtnFound) {
+            return await abortWithProof(page, 'Não achei o botão Criar da barra lateral.');
+        }
+
+        await new Promise(r => setTimeout(r, 3000)); // Espera o Modal abrir
+
+        // --- 3. SELEÇÃO DE ARQUIVO (MODAL) ---
+        console.log('[Insta] Modal aberto. Buscando botão "Selecionar do computador"...');
+        
+        // No desktop, aparece um modal com um botão azul "Select from computer"
+        const fileChooserPromise = page.waitForFileChooser();
+        
+        // Tenta clicar no botão azul pelo texto
+        const selectBtn = await clickByText(page, ['Select from computer', 'Selecionar do computador', 'Select', 'Selecionar'], 'button');
+        
+        if (!selectBtn) {
+            // Se não achar o botão texto, tenta achar o input file oculto que o modal cria
+            console.log('[Insta] Botão azul não achado. Tentando input direto...');
+            const inputUpload = await page.$('input[type="file"]');
+            if (inputUpload) {
+                await inputUpload.uploadFile(imagePath);
             } else {
-                console.log(`[Insta] Tentativa ${attempt+1} falhou. Tentando de novo...`);
+                return await abortWithProof(page, 'Botão de upload e input sumiram.');
             }
+        } else {
+            // Se clicou no botão, espera o seletor
+            const fileChooser = await fileChooserPromise;
+            await fileChooser.accept([imagePath]);
         }
 
-        if (!inputFound) {
-             // Última chance: Tenta FileChooser tradicional se o Input Injection falhou
-             console.log('[Insta] Input não abriu. Tentando FileChooser tradicional...');
-             try {
-                const [fileChooser] = await Promise.all([
-                    page.waitForFileChooser({ timeout: 5000 }),
-                    page.touchscreen.tap(btnLocation.x, btnLocation.y),
-                ]);
-                await fileChooser.accept([imagePath]);
-                inputFound = true;
-             } catch(e) {
-                return await abortWithProof(page, 'Não consegui abrir a janela de upload.');
-             }
-        }
+        console.log('[Insta] Arquivo carregado! Aguardando crop...');
+        await new Promise(r => setTimeout(r, 6000));
 
-        console.log('[Insta] Arquivo enviado! Aguardando preview...');
-        await new Promise(r => setTimeout(r, 8000));
-
-        // --- 4. POSTAGEM (NEXT -> NEXT -> SHARE) ---
+        // --- 4. FLUXO "NEXT" -> "NEXT" -> "SHARE" (TOPO DO MODAL) ---
+        // No desktop, os botões ficam no cabeçalho do modal (top right do modal)
         
-        // Next 1
-        console.log('[Insta] Avançar 1...');
-        let next1 = await tapByText(page, ['Next', 'Avançar']);
-        if (!next1) await page.touchscreen.tap(360, 45); // Topo direito
-        await new Promise(r => setTimeout(r, 4000));
+        // Next 1 (Crop)
+        console.log('[Insta] Next 1...');
+        let next1 = await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]'); 
+        if(!next1) next1 = await clickByText(page, ['Next', 'Avançar'], 'button');
+        
+        if (!next1) return await abortWithProof(page, 'Botão Next 1 não encontrado.');
+        await new Promise(r => setTimeout(r, 3000));
 
-        // Next 2
-        console.log('[Insta] Avançar 2...');
-        let next2 = await tapByText(page, ['Next', 'Avançar']);
-        if (!next2) await page.touchscreen.tap(360, 45);
-        await new Promise(r => setTimeout(r, 4000));
+        // Next 2 (Filtros)
+        console.log('[Insta] Next 2...');
+        let next2 = await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]');
+        if(!next2) next2 = await clickByText(page, ['Next', 'Avançar'], 'button');
+        await new Promise(r => setTimeout(r, 3000));
 
         // Legenda
         if (legenda) {
-            console.log('[Insta] Legenda...');
+            console.log('[Insta] Escrevendo legenda...');
             try {
-                const textArea = await page.waitForSelector('textarea, div[role="textbox"]', { timeout: 5000 });
-                await textArea.tap();
-                await textArea.type(legenda, { delay: 50 });
-            } catch(e) {}
+                // No desktop a area de texto tem aria-label claro
+                const textArea = await page.waitForSelector('div[aria-label="Write a caption..."], div[aria-label="Escreva uma legenda..."]', { timeout: 5000 });
+                await textArea.click();
+                await textArea.type(legenda, { delay: 30 });
+            } catch(e) {
+                console.log('[Insta] Erro legenda (não crítico): ' + e.message);
+            }
         }
 
         // Share
         console.log('[Insta] Compartilhando...');
-        let shared = await tapByText(page, ['Share', 'Compartilhar']);
-        if (!shared) await page.touchscreen.tap(360, 45);
+        let share = await clickByText(page, ['Share', 'Compartilhar'], 'div[role="button"]');
+        if(!share) share = await clickByText(page, ['Share', 'Compartilhar'], 'button');
 
-        await new Promise(r => setTimeout(r, 15000));
-        console.log('[Insta] SUCESSO!');
-        
-        const finalImg = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
-        res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': finalImg.length });
-        res.end(finalImg);
+        if (share) {
+            // Espera a confirmação visual "Your post has been shared"
+            await new Promise(r => setTimeout(r, 12000));
+            console.log('[Insta] SUCESSO!');
+            const finalImg = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
+            res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': finalImg.length });
+            res.end(finalImg);
+        } else {
+            return await abortWithProof(page, 'Botão Share sumiu.');
+        }
 
     } catch (error) {
         if (page) await abortWithProof(page, error.message);
