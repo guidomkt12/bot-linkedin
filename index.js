@@ -21,7 +21,7 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('⚠️ PROMESSA REJEITADA:', reason);
 });
 
-const server = app.listen(PORT, () => console.log(`Super Bot V9.2 (Legenda Inject) rodando na porta ${PORT} 🛡️`));
+const server = app.listen(PORT, () => console.log(`Super Bot V10 (Slow Type) rodando na porta ${PORT} 🛡️`));
 server.setTimeout(600000); 
 
 app.use(express.json({ limit: '100mb' }));
@@ -39,7 +39,7 @@ async function downloadImage(url) {
 }
 
 // Rota de Teste
-app.get('/', (req, res) => res.send('Super Bot V9.2 Online (InsertText Fix) 🛡️'));
+app.get('/', (req, res) => res.send('Super Bot V10 Online (Slow Type) 🛡️'));
 
 // --- FUNÇÃO AUXILIAR: CLIQUE POR TEXTO ---
 async function clickByText(page, textsToFind, tag = '*') {
@@ -79,7 +79,7 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
     };
 
     try {
-        console.log('--- INICIANDO LINKEDIN (V9.2) ---');
+        console.log('--- INICIANDO LINKEDIN (V10) ---');
         const { texto, paginaUrl, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -182,7 +182,7 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
 });
 
 // ==========================================
-// ROTA 2: INSTAGRAM (V9.2 - LEGENDA NUCLEAR)
+// ROTA 2: INSTAGRAM (V10 - DESKTOP + SLOW TYPE)
 // ==========================================
 app.post('/instagram', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -202,7 +202,7 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
     };
 
     try {
-        console.log('--- INICIANDO INSTAGRAM (V9.2 - Desktop Inject) ---');
+        console.log('--- INICIANDO INSTAGRAM (V10 - Desktop) ---');
         const { legenda, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -236,12 +236,12 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
         await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
         await new Promise(r => setTimeout(r, 6000));
 
-        // --- 1. LIMPEZA DE POPUPS (DESKTOP) ---
+        // --- 1. POPUPS ---
         console.log('[Insta] Verificando notificações...');
         await clickByText(page, ['Not Now', 'Agora não', 'Agora nao', 'Cancel']);
         await new Promise(r => setTimeout(r, 2000));
 
-        // --- 2. ABRIR MODAL DE CRIAÇÃO ---
+        // --- 2. MODAL DE CRIAÇÃO ---
         console.log('[Insta] Buscando botão (+)...');
         let createBtnFound = false;
         
@@ -256,7 +256,7 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
         if (!createBtnFound) return await abortWithProof(page, 'Não achei o botão Criar.');
         await new Promise(r => setTimeout(r, 3000));
 
-        // --- 3. SELEÇÃO DE ARQUIVO ---
+        // --- 3. UPLOAD ---
         console.log('[Insta] Selecionando arquivo...');
         const fileChooserPromise = page.waitForFileChooser();
         const selectBtn = await clickByText(page, ['Select from computer', 'Selecionar do computador', 'Select', 'Selecionar'], 'button');
@@ -276,7 +276,7 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
         console.log('[Insta] Arquivo carregado. Aguardando...');
         await new Promise(r => setTimeout(r, 6000));
 
-        // --- 4. FLUXO NEXT -> NEXT ---
+        // --- 4. AVANÇAR (NEXT -> NEXT) ---
         console.log('[Insta] Next 1...');
         let next1 = await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]'); 
         if(!next1) next1 = await clickByText(page, ['Next', 'Avançar'], 'button');
@@ -288,61 +288,27 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
         if(!next2) next2 = await clickByText(page, ['Next', 'Avançar'], 'button');
         await new Promise(r => setTimeout(r, 4000));
 
-        // --- 5. LEGENDA (MÉTODO NUCLEAR: INSERT_TEXT) ---
+        // --- 5. LEGENDA (MÉTODO LENTO E SEGURO) ---
         if (legenda) {
-            console.log('[Insta] Escrevendo legenda (Modo Inject)...');
+            console.log('[Insta] Escrevendo legenda (Slow Type)...');
             try {
-                // Procura qualquer área editável dentro do modal ativo
-                // O seletor 'div[role="dialog"] div[contenteditable="true"]' é tiro certo no modal
-                const textAreaSelector = 'div[role="dialog"] div[contenteditable="true"], div[aria-label="Write a caption..."], div[aria-label="Escreva uma legenda..."]';
+                // Seletor UNIVERSAL: Pega a caixa de texto dentro do Modal
+                // role="textbox" é padrão do editor DraftJS do Instagram
+                const textAreaSelector = 'div[role="dialog"] div[role="textbox"]';
                 
-                // Espera aparecer
-                const textArea = await page.waitForSelector(textAreaSelector, { visible: true, timeout: 6000 });
+                const textArea = await page.waitForSelector(textAreaSelector, { visible: true, timeout: 8000 });
                 
                 if (textArea) {
-                    await textArea.click(); // Clica para dar foco
-                    await new Promise(r => setTimeout(r, 1000)); // Espera o cursor piscar
+                    // Clica 2 vezes para garantir foco absoluto
+                    await textArea.click();
+                    await new Promise(r => setTimeout(r, 300));
+                    await textArea.click();
+                    await new Promise(r => setTimeout(r, 1000));
                     
-                    // --- O PULO DO GATO ---
-                    // Em vez de digitar, usamos o comando de colar do navegador.
-                    // Isso ignora se o campo é React, Vue, ou o que for.
-                    await page.evaluate((txt, sel) => {
-                        const el = document.querySelector(sel);
-                        if (el) el.focus();
-                        // Simula um "Colar" (Paste)
-                        document.execCommand('insertText', false, txt);
-                    }, legenda, textAreaSelector);
-
-                    console.log('[Insta] Legenda injetada via execCommand.');
+                    // Digita devagar (100ms por tecla) para o React processar
+                    await page.keyboard.type(legenda, { delay: 100 });
+                    
+                    console.log('[Insta] Legenda digitada.');
+                    await new Promise(r => setTimeout(r, 2000)); // Espera o texto assentar
                 } else {
-                    console.log('[Insta] ERRO: Campo de legenda não encontrado.');
-                }
-            } catch(e) {
-                console.log('[Insta] Erro fatal na legenda: ' + e.message);
-            }
-        }
-
-        // --- 6. SHARE ---
-        console.log('[Insta] Compartilhando...');
-        await new Promise(r => setTimeout(r, 1000));
-        let share = await clickByText(page, ['Share', 'Compartilhar'], 'div[role="button"]');
-        if(!share) share = await clickByText(page, ['Share', 'Compartilhar'], 'button');
-
-        if (share) {
-            await new Promise(r => setTimeout(r, 12000));
-            console.log('[Insta] SUCESSO!');
-            const finalImg = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
-            res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': finalImg.length });
-            res.end(finalImg);
-        } else {
-            return await abortWithProof(page, 'Botão Share sumiu.');
-        }
-
-    } catch (error) {
-        if (page) await abortWithProof(page, error.message);
-        else res.status(500).json({ erro: error.message });
-    } finally {
-        if (browser) await browser.close();
-        if (imagePath) await fs.remove(imagePath).catch(()=>{});
-    }
-});
+                    console.log('[Insta] ERRO: Campo de legenda não encontrado
