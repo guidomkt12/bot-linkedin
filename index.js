@@ -21,7 +21,7 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('⚠️ PROMESSA REJEITADA:', reason);
 });
 
-const server = app.listen(PORT, () => console.log(`Super Bot V10 (Slow Type) rodando na porta ${PORT} 🛡️`));
+const server = app.listen(PORT, () => console.log(`Super Bot V11 (Surgery + WakeUp) rodando na porta ${PORT} 🛡️`));
 server.setTimeout(600000); 
 
 app.use(express.json({ limit: '100mb' }));
@@ -39,7 +39,7 @@ async function downloadImage(url) {
 }
 
 // Rota de Teste
-app.get('/', (req, res) => res.send('Super Bot V10 Online (Slow Type) 🛡️'));
+app.get('/', (req, res) => res.send('Super Bot V11 Online (Surgery Fix) 🛡️'));
 
 // --- FUNÇÃO AUXILIAR: CLIQUE POR TEXTO ---
 async function clickByText(page, textsToFind, tag = '*') {
@@ -79,7 +79,7 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
     };
 
     try {
-        console.log('--- INICIANDO LINKEDIN (V10) ---');
+        console.log('--- INICIANDO LINKEDIN (V11) ---');
         const { texto, paginaUrl, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -182,7 +182,7 @@ app.post('/publicar', upload.single('imagem'), async (req, res) => {
 });
 
 // ==========================================
-// ROTA 2: INSTAGRAM (V10 - DESKTOP + SLOW TYPE)
+// ROTA 2: INSTAGRAM (V11 - CIRURGIA DE LEGENDA)
 // ==========================================
 app.post('/instagram', upload.single('imagem'), async (req, res) => {
     req.setTimeout(600000);
@@ -202,7 +202,7 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
     };
 
     try {
-        console.log('--- INICIANDO INSTAGRAM (V10 - Desktop) ---');
+        console.log('--- INICIANDO INSTAGRAM (V11 - Desktop) ---');
         const { legenda, cookies, imagemUrl } = req.body;
         
         if (!imagePath && imagemUrl) {
@@ -276,7 +276,7 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
         console.log('[Insta] Arquivo carregado. Aguardando...');
         await new Promise(r => setTimeout(r, 6000));
 
-        // --- 4. AVANÇAR (NEXT -> NEXT) ---
+        // --- 4. AVANÇAR ---
         console.log('[Insta] Next 1...');
         let next1 = await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]'); 
         if(!next1) next1 = await clickByText(page, ['Next', 'Avançar'], 'button');
@@ -288,43 +288,53 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
         if(!next2) next2 = await clickByText(page, ['Next', 'Avançar'], 'button');
         await new Promise(r => setTimeout(r, 4000));
 
-        // --- 5. LEGENDA (MÉTODO LENTO E SEGURO) ---
+        // --- 5. LEGENDA (MÉTODO CIRÚRGICO) ---
         if (legenda) {
-            console.log('[Insta] Escrevendo legenda (Slow Type)...');
+            console.log('[Insta] Injetando legenda...');
             try {
-                // Seletor UNIVERSAL: Pega a caixa de texto dentro do Modal
-                // role="textbox" é padrão do editor DraftJS do Instagram
-                const textAreaSelector = 'div[role="dialog"] div[role="textbox"]';
+                // Seletor: Busca qualquer div editável dentro do modal (role=dialog)
+                const editorSelector = 'div[role="dialog"] div[contenteditable="true"]';
                 
-                const textArea = await page.waitForSelector(textAreaSelector, { visible: true, timeout: 8000 });
+                // Espera aparecer
+                await page.waitForSelector(editorSelector, { timeout: 8000 });
                 
-                if (textArea) {
-                    // Clica 2 vezes para garantir foco absoluto
-                    await textArea.click();
-                    await new Promise(r => setTimeout(r, 300));
-                    await textArea.click();
-                    await new Promise(r => setTimeout(r, 1000));
-                    
-                    // Digita devagar (100ms por tecla) para o React processar
-                    await page.keyboard.type(legenda, { delay: 100 });
-                    
-                    console.log('[Insta] Legenda digitada.');
-                    await new Promise(r => setTimeout(r, 2000)); // Espera o texto assentar
-                } else {
-                    console.log('[Insta] ERRO: Campo de legenda não encontrado.');
-                }
+                // 1. Foco Visual
+                await page.click(editorSelector);
+                await new Promise(r => setTimeout(r, 500));
+                
+                // 2. Injeção de Texto Direta no DOM (Bypass React)
+                await page.evaluate((sel, text) => {
+                    const el = document.querySelector(sel);
+                    if(el) {
+                        el.focus();
+                        el.innerText = text; // Força o texto
+                        // Dispara eventos falsos para avisar o React
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                }, editorSelector, legenda);
+
+                // 3. O "Choque": Digita Espaço + Backspace para validar
+                // Isso força o React a ler o estado do campo
+                await page.keyboard.press('Space');
+                await new Promise(r => setTimeout(r, 100));
+                await page.keyboard.press('Backspace');
+
+                console.log('[Insta] Legenda injetada e validada.');
+                
             } catch(e) {
-                console.log('[Insta] Erro fatal na legenda: ' + e.message);
+                console.log('[Insta] Erro legenda (não impede post): ' + e.message);
             }
         }
 
         // --- 6. SHARE ---
         console.log('[Insta] Compartilhando...');
+        await new Promise(r => setTimeout(r, 2000));
         let share = await clickByText(page, ['Share', 'Compartilhar'], 'div[role="button"]');
         if(!share) share = await clickByText(page, ['Share', 'Compartilhar'], 'button');
 
         if (share) {
-            await new Promise(r => setTimeout(r, 15000)); // Mais tempo para upload
+            await new Promise(r => setTimeout(r, 15000));
             console.log('[Insta] SUCESSO!');
             const finalImg = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
             res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': finalImg.length });
