@@ -13,10 +13,8 @@ const app = express();
 const PORT = process.env.PORT || 80;
 const upload = multer({ dest: '/tmp/uploads/' });
 
-// --- CONFIGURAÇÃO SAAS ---
-const MAX_CONCURRENT = 8; 
-
-// --- PROXY (Opcional) ---
+// --- CONFIG ---
+const MAX_CONCURRENT = 8;
 const PROXY_HOST = process.env.PROXY_HOST || ''; 
 const PROXY_USER = process.env.PROXY_USER || '';
 const PROXY_PASS = process.env.PROXY_PASS || '';
@@ -25,46 +23,40 @@ const USE_PROXY = PROXY_HOST && PROXY_HOST.length > 0;
 let activeProcesses = 0;
 const requestQueue = [];
 
-// --- SISTEMA ANTI-CRASH ---
-process.on('uncaughtException', (err) => { console.error('⚠️ ERRO CRÍTICO:', err); });
-process.on('unhandledRejection', (reason, promise) => { console.error('⚠️ PROMESSA REJEITADA:', reason); });
+// --- LOGS ---
+process.on('uncaughtException', (err) => { console.error('⚠️ CRITICAL:', err); });
+process.on('unhandledRejection', (reason, promise) => { console.error('⚠️ REJECTION:', reason); });
 
-const server = app.listen(PORT, () => console.log(`Super Bot V24 (ExecCommand Fix) rodando na porta ${PORT} 🛡️`));
+const server = app.listen(PORT, () => console.log(`Super Bot V25 (React Force + Debug) running on ${PORT}`));
 server.setTimeout(1200000); 
 
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
-// --- PROCESSADOR DE FILA ---
+// --- QUEUE ---
 function processQueue() {
-    if (activeProcesses >= MAX_CONCURRENT) return; 
-    if (requestQueue.length === 0) return; 
-
+    if (activeProcesses >= MAX_CONCURRENT || requestQueue.length === 0) return; 
     const nextJob = requestQueue.shift();
     activeProcesses++;
-    console.log(`[Queue] Iniciando job. Ativos: ${activeProcesses}/${MAX_CONCURRENT}`);
-
-    nextJob()
-        .finally(() => {
-            activeProcesses--;
-            console.log(`[Queue] Job finalizado. Restam: ${requestQueue.length}`);
-            processQueue();
-        });
-}
-
-function addJobToQueue(jobFunction) {
-    return new Promise((resolve, reject) => {
-        const queueItem = async () => {
-            try { resolve(await jobFunction()); } 
-            catch (error) { reject(error); }
-        };
-        requestQueue.push(queueItem);
+    nextJob().finally(() => {
+        activeProcesses--;
         processQueue();
     });
 }
 
+function addJobToQueue(jobFunction) {
+    return new Promise((resolve, reject) => {
+        requestQueue.push(async () => {
+            try { resolve(await jobFunction()); } 
+            catch (error) { reject(error); }
+        });
+        processQueue();
+    });
+}
+
+// --- UTILS ---
 async function downloadImage(url) {
-    const tempPath = path.resolve('/tmp', `img_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`);
+    const tempPath = path.resolve('/tmp', `img_${Date.now()}.jpg`);
     const writer = fs.createWriteStream(tempPath);
     const response = await axios({ url, method: 'GET', responseType: 'stream' });
     response.data.pipe(writer);
@@ -74,13 +66,8 @@ async function downloadImage(url) {
     });
 }
 
-app.get('/', (req, res) => {
-    res.send(`Super Bot V24 Online 🛡️<br>Status: OK<br>Fila: ${requestQueue.length}`);
-});
-
-function cleanTextForTyping(text) {
+function cleanText(text) {
     if (!text) return "";
-    // Remove emojis problemáticos para evitar travamentos no Linux
     return text.replace(/[\u{1F600}-\u{1F6FF}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2702}-\u{27B0}\u{24C2}-\u{1F251}]/gu, '');
 }
 
@@ -100,159 +87,186 @@ async function clickByText(page, textsToFind, tag = '*') {
     } catch (e) { return false; }
 }
 
+app.get('/', (req, res) => res.send(`Bot V25 Online. Queue: ${requestQueue.length}`));
+
 // ==========================================
-// FUNÇÃO LÓGICA: INSTAGRAM
+// CORE LOGIC
 // ==========================================
 async function runInstagramBot(body, file) {
     let imagePath = file ? file.path : null;
     let browser = null;
     let page = null;
-    let resultBuffer = null;
+    let debugLog = []; // Log acumulativo para retornar ao n8n
+    
+    // Função auxiliar de log interno
+    const log = (msg) => {
+        console.log(`[Insta] ${msg}`);
+        debugLog.push(`${new Date().toISOString().split('T')[1]} - ${msg}`);
+    };
 
     try {
         const { legenda, cookies, imagemUrl } = body;
-        if (!imagePath && imagemUrl) { try { imagePath = await downloadImage(imagemUrl); } catch (e) {} }
-        if (!imagePath) throw new Error('Imagem é obrigatória.');
-        if (!cookies) throw new Error('Cookies obrigatórios.');
+        if (!imagePath && imagemUrl) try { imagePath = await downloadImage(imagemUrl); } catch (e) {}
+        if (!imagePath) throw new Error('No Image provided');
+        if (!cookies) throw new Error('No Cookies provided');
 
-        const launchArgs = [
-            '--no-sandbox', 
-            '--disable-setuid-sandbox', 
-            '--disable-dev-shm-usage', 
-            '--window-size=1366,768', 
-            '--start-maximized',
-            '--disable-features=IsolateOrigins,site-per-process'
-        ];
-        if (USE_PROXY) launchArgs.push(`--proxy-server=${PROXY_HOST}`);
+        const args = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--window-size=1366,768', '--start-maximized'];
+        if (USE_PROXY) args.push(`--proxy-server=${PROXY_HOST}`);
 
-        browser = await puppeteer.launch({ headless: true, args: launchArgs, defaultViewport: { width: 1366, height: 768 }, timeout: 90000 });
-        
+        browser = await puppeteer.launch({ headless: true, args, defaultViewport: { width: 1366, height: 768 } });
         page = await browser.newPage();
         if (USE_PROXY && PROXY_USER) await page.authenticate({ username: PROXY_USER, password: PROXY_PASS });
-
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
-        
+
+        // Cookies
         const cookiesJson = typeof cookies === 'string' ? JSON.parse(cookies) : cookies;
         if (Array.isArray(cookiesJson)) await page.setCookie(...cookiesJson);
 
+        log('Navegando para Home...');
         await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-        await new Promise(r => setTimeout(r, 5000));
+        await new Promise(r => setTimeout(r, 4000));
         await clickByText(page, ['Not Now', 'Agora não', 'Cancel']);
-        
-        // Criar
-        let createBtnFound = false;
-        const createSelector = 'svg[aria-label="New post"], svg[aria-label="Nova publicação"], svg[aria-label="Create"], svg[aria-label="Criar"]';
-        if (await page.$(createSelector)) { await page.click(createSelector); createBtnFound = true; } 
-        else { createBtnFound = await clickByText(page, ['Create', 'Criar'], 'span'); }
-        if (!createBtnFound) throw new Error('Botão Criar não encontrado.');
-        await new Promise(r => setTimeout(r, 3000));
 
-        // Upload
-        const fileChooserPromise = page.waitForFileChooser();
-        const selectBtn = await clickByText(page, ['Select from computer', 'Selecionar do computador', 'Select'], 'button');
-        if (!selectBtn) {
-            const inputUpload = await page.$('input[type="file"]');
-            if(inputUpload) await inputUpload.uploadFile(imagePath);
-            else throw new Error('Input upload sumiu.');
-        } else { const fileChooser = await fileChooserPromise; await fileChooser.accept([imagePath]); }
-        await new Promise(r => setTimeout(r, 6000));
+        // Flow de Upload
+        log('Abrindo Modal...');
+        let createFound = await clickByText(page, ['Create', 'Criar'], 'span');
+        if(!createFound) {
+             const svgSelector = 'svg[aria-label="New post"], svg[aria-label="Nova publicação"], svg[aria-label="Create"]';
+             if(await page.$(svgSelector)) { await page.click(svgSelector); createFound = true; }
+        }
+        if(!createFound) throw new Error('Botão Create não encontrado');
+        await new Promise(r => setTimeout(r, 2000));
 
-        // Next -> Next
+        log('Upload...');
+        const [fileChooser] = await Promise.all([page.waitForFileChooser(), clickByText(page, ['Select from computer', 'Selecionar'], 'button')]);
+        await fileChooser.accept([imagePath]);
+        await new Promise(r => setTimeout(r, 4000));
+
+        log('Next 1...');
         await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]');
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise(r => setTimeout(r, 2000));
+        log('Next 2...');
         await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]');
-        await new Promise(r => setTimeout(r, 6000)); 
+        await new Promise(r => setTimeout(r, 5000));
 
-        // --- LEGENDA (EXEC COMMAND STRATEGY) ---
-        if (legenda && legenda.trim().length > 0) {
-            const cleanLegenda = cleanTextForTyping(legenda);
+        // --- DIAGNÓSTICO E INSERÇÃO DE LEGENDA ---
+        if (legenda) {
+            const cleanLegenda = cleanText(legenda);
+            log(`Tentando inserir texto (${cleanLegenda.length} chars)...`);
             
-            // 1. Encontra a área de texto
-            const selectors = ['div[aria-label="Write a caption..."]', 'div[aria-label="Escreva uma legenda..."]', 'div[role="textbox"]'];
-            let textArea = null;
-            for (const sel of selectors) {
-                try { textArea = await page.waitForSelector(sel, { visible: true, timeout: 3000 }); if(textArea) break; } catch(e){}
+            // 1. Identificar o seletor exato
+            const selector = 'div[role="dialog"] div[contenteditable="true"][role="textbox"]';
+            try {
+                await page.waitForSelector(selector, { timeout: 5000 });
+                log('Seletor encontrado.');
+            } catch (e) {
+                // Snapshot do HTML se não achar
+                const htmlDump = await page.evaluate(() => document.querySelector('div[role="dialog"]')?.outerHTML || 'SEM_DIALOG');
+                log(`FALHA AO ACHAR CAIXA. HTML Dump: ${htmlDump.substring(0, 100)}...`);
+                throw new Error('Caixa de texto não apareceu.');
             }
 
-            if (textArea) {
-                console.log('[Insta] Campo detectado. Focando...');
-                
-                // 2. Garante Foco
-                await textArea.click();
-                await new Promise(r => setTimeout(r, 500));
-                
-                // 3. INSERÇÃO VIA EXEC_COMMAND (Bypassa Clipboard Permission)
-                // Isso funciona como se o usuário tivesse colado, mas sem acessar o clipboard do OS
-                console.log('[Insta] Inserindo texto via execCommand...');
-                await page.evaluate((txt) => {
-                    document.execCommand('insertText', false, txt);
-                }, cleanLegenda);
-                
-                await new Promise(r => setTimeout(r, 1000));
+            // 2. FORÇAR O REACT (A TÉCNICA SECRETA)
+            // Em vez de digitar, vamos injetar o valor e disparar eventos
+            const evalResult = await page.evaluate((sel, txt) => {
+                const el = document.querySelector(sel);
+                if (!el) return { success: false, reason: 'element_missing' };
 
-                // 4. VERIFICAÇÃO DE SUCESSO
-                let content = await page.evaluate(el => el.innerText, textArea);
+                el.focus();
                 
-                // Se falhou, tenta digitação lenta como último recurso
-                if(!content || content.trim().length === 0) {
-                    console.log('[Insta] execCommand falhou. Tentando Digitação Lenta (Fallback)...');
-                    await page.keyboard.type(cleanLegenda, { delay: 100 });
-                    await new Promise(r => setTimeout(r, 1000));
-                    content = await page.evaluate(el => el.innerText, textArea);
-                }
+                // Método 1: innerText direto
+                el.innerText = txt; 
+                
+                // Método 2: Disparar eventos para acordar o React
+                const eventTypes = ['input', 'change', 'compositionstart', 'compositionend', 'keydown', 'keyup'];
+                eventTypes.forEach(evt => {
+                    el.dispatchEvent(new Event(evt, { bubbles: true, cancelable: true }));
+                });
 
-                if(!content || content.trim().length === 0) {
-                    throw new Error('ERRO CRÍTICO: Não foi possível inserir a legenda (Permissão negada ou falha de foco).');
-                } else {
-                    console.log(`[Insta] Texto validado: "${content.substring(0, 20)}..."`);
-                }
+                return { 
+                    success: true, 
+                    currentText: el.innerText,
+                    activeElement: document.activeElement === el ? 'CORRETO' : 'ERRADO'
+                };
+            }, selector, cleanLegenda);
 
-            } else {
-                throw new Error('Campo de legenda não apareceu na tela.');
+            log(`Resultado da Injeção: ${JSON.stringify(evalResult)}`);
+            await new Promise(r => setTimeout(r, 1000));
+
+            // 3. Validação Final
+            const finalRead = await page.evaluate(s => document.querySelector(s)?.innerText, selector);
+            log(`Leitura final do DOM: "${finalRead?.substring(0, 15)}..."`);
+
+            if (!finalRead || finalRead.trim().length === 0) {
+                // Se falhou, desenha borda vermelha e tira print de erro
+                await page.evaluate(s => { 
+                    const e = document.querySelector(s); 
+                    if(e) e.style.border = '5px solid red'; 
+                }, selector);
+                const errPic = await page.screenshot({ type: 'jpeg', quality: 60 });
+                return { success: false, logs: debugLog, image: errPic.toString('base64'), error: 'Texto não persistiu' };
             }
         }
 
         // Share
-        let share = await clickByText(page, ['Share', 'Compartilhar'], 'div[role="button"]');
-        if(!share) share = await clickByText(page, ['Share', 'Compartilhar'], 'button');
+        log('Clicando Share...');
+        let shareClicked = await clickByText(page, ['Share', 'Compartilhar'], 'div[role="button"]');
+        if (!shareClicked) throw new Error('Botão Share sumiu');
 
-        if (share) {
-            await new Promise(r => setTimeout(r, 15000)); 
-            const success = await clickByText(page, ['Post shared', 'Publicação compartilhada', 'Your post has been shared'], 'span');
-            if (success) {
-                console.log('[Insta] Sucesso confirmado!');
-                resultBuffer = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
-            } else {
-                console.log('[Insta] Aviso: Mensagem de sucesso não vista, mas assumindo postagem.');
-                resultBuffer = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
-            }
-        } else { throw new Error('Botão Compartilhar não encontrado.'); }
+        await new Promise(r => setTimeout(r, 12000));
+        
+        // Sucesso?
+        const successMsg = await page.evaluate(() => document.body.innerText.includes('Post shared') || document.body.innerText.includes('compartilhada'));
+        log(`Sucesso detectado no texto da página: ${successMsg}`);
+
+        const finalImg = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
+        
+        return { 
+            success: true, 
+            logs: debugLog, 
+            image: finalImg.toString('base64') // Retorna base64 para o n8n montar se quiser
+        };
 
     } catch (error) {
-        console.error(`[Insta Error] ${error.message}`);
-        if (page && !page.isClosed()) try { resultBuffer = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true }); } catch(e){}
-        throw error; 
+        log(`ERRO FINAL: ${error.message}`);
+        let errImg = null;
+        if (page && !page.isClosed()) errImg = await page.screenshot({ type: 'jpeg', quality: 60 });
+        
+        return { 
+            success: false, 
+            logs: debugLog, 
+            error: error.message,
+            image: errImg ? errImg.toString('base64') : null
+        };
     } finally {
         if (browser) await browser.close();
         if (imagePath) await fs.remove(imagePath).catch(()=>{});
     }
-    return resultBuffer;
 }
 
-// ==========================================
-// ROTA PUBLICAR (LINKEDIN - MANTIDO)
-// ==========================================
-// (Código do LinkedIn permanece o mesmo das versões anteriores, omitido aqui para focar no erro do Insta)
-async function runLinkedinBot(body, file) { return null; } // Placeholder
-
-app.post('/publicar', upload.single('imagem'), async (req, res) => {
-    res.status(200).json({ status: "Use a rota /instagram" });
-});
-
-// ROTA INSTAGRAM
+// ROTA UNIFICADA
 app.post('/instagram', upload.single('imagem'), async (req, res) => {
     req.setTimeout(1200000); res.setTimeout(1200000);
+    
     addJobToQueue(() => runInstagramBot(req.body, req.file))
-        .then((img) => { res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': img.length }); res.end(img); })
-        .catch((err) => { res.status(500).json({ erro: err.message }); });
+        .then((result) => {
+            // Se tiver imagem (buffer convertido em base64), transformamos de volta em buffer para enviar como imagem
+            if (result.image) {
+                const imgBuffer = Buffer.from(result.image, 'base64');
+                // Headers customizados para você ver o debug no n8n
+                res.writeHead(result.success ? 200 : 500, { 
+                    'Content-Type': 'image/jpeg',
+                    'Content-Length': imgBuffer.length,
+                    'X-Debug-Logs': JSON.stringify(result.logs).substring(0, 5000) // Cabeçalho tem limite, cuidado
+                });
+                res.end(imgBuffer);
+            } else {
+                res.status(result.success ? 200 : 500).json(result);
+            }
+        })
+        .catch((err) => {
+            res.status(500).json({ error: err.message });
+        });
 });
+
+app.post('/publicar', (req, res) => res.json({msg: "Use /instagram"}));
