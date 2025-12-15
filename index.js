@@ -14,7 +14,7 @@ const PORT = process.env.PORT || 80;
 const upload = multer({ dest: '/tmp/uploads/' });
 
 // --- CONFIGURAÇÃO SAAS ---
-const MAX_CONCURRENT = 5; // Reduzi para 5 para garantir estabilidade no debug
+const MAX_CONCURRENT = 5; 
 const PROXY_HOST = process.env.PROXY_HOST || ''; 
 const PROXY_USER = process.env.PROXY_USER || '';
 const PROXY_PASS = process.env.PROXY_PASS || '';
@@ -26,7 +26,7 @@ const requestQueue = [];
 process.on('uncaughtException', (err) => { console.error('⚠️ CRITICAL:', err); });
 process.on('unhandledRejection', (reason, promise) => { console.error('⚠️ REJECTION:', reason); });
 
-const server = app.listen(PORT, () => console.log(`Super Bot V25 (DIAGNOSTIC MODE) running on ${PORT}`));
+const server = app.listen(PORT, () => console.log(`Super Bot V26 (Direct Upload) running on ${PORT}`));
 server.setTimeout(1200000); 
 
 app.use(express.json({ limit: '100mb' }));
@@ -86,18 +86,17 @@ async function clickByText(page, textsToFind, tag = '*') {
     } catch (e) { return false; }
 }
 
-app.get('/', (req, res) => res.send(`Bot V25 Diagnostic. Queue: ${requestQueue.length}`));
+app.get('/', (req, res) => res.send(`Bot V26 Direct Upload. Queue: ${requestQueue.length}`));
 
 // ==========================================
-// CORE LOGIC - INSTAGRAM DIAGNOSTIC
+// CORE LOGIC - INSTAGRAM V26
 // ==========================================
 async function runInstagramBot(body, file) {
     let imagePath = file ? file.path : null;
     let browser = null;
     let page = null;
-    
-    // LOGS DE DIAGNÓSTICO
     let debugLog = []; 
+    
     const log = (msg) => {
         const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
         console.log(`[Insta ${timestamp}] ${msg}`);
@@ -107,6 +106,7 @@ async function runInstagramBot(body, file) {
     try {
         const { legenda, cookies, imagemUrl } = body;
         if (!imagePath && imagemUrl) try { imagePath = await downloadImage(imagemUrl); } catch (e) {}
+        if (!imagePath) throw new Error('No Image provided');
         
         log('Iniciando navegador...');
         const args = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--window-size=1366,768', '--start-maximized'];
@@ -125,110 +125,118 @@ async function runInstagramBot(body, file) {
         await new Promise(r => setTimeout(r, 4000));
         await clickByText(page, ['Not Now', 'Agora não', 'Cancel']);
 
-        // --- UPLOAD FLOW ---
+        // --- UPLOAD FLOW (MÉTODO DIRETO V26) ---
         log('Abrindo Modal Criar...');
         let createFound = await clickByText(page, ['Create', 'Criar'], 'span');
         if(!createFound) {
              const svgSelector = 'svg[aria-label="New post"], svg[aria-label="Nova publicação"], svg[aria-label="Create"]';
              if(await page.$(svgSelector)) { await page.click(svgSelector); createFound = true; }
         }
-        if(!createFound) {
-            log('ERRO: Botão Criar não achado.');
-            throw new Error('Botão Create não encontrado');
-        }
-        await new Promise(r => setTimeout(r, 2000));
+        if(!createFound) throw new Error('Botão Create não encontrado');
+        
+        await new Promise(r => setTimeout(r, 2000)); // Espera o modal renderizar
 
-        log('Selecionando arquivo...');
-        const [fileChooser] = await Promise.all([page.waitForFileChooser(), clickByText(page, ['Select from computer', 'Selecionar'], 'button')]);
-        await fileChooser.accept([imagePath]);
+        log('Buscando input[type="file"] oculto...');
+        // Em vez de clicar no botão "Selecionar", buscamos o input direto no DOM
+        const fileInput = await page.waitForSelector('input[type="file"]', { timeout: 10000 });
+        
+        if (fileInput) {
+            log('Input encontrado! Realizando upload direto...');
+            await fileInput.uploadFile(imagePath);
+        } else {
+            throw new Error('Input de arquivo não encontrado no modal.');
+        }
+
+        log('Aguardando tela de corte (Crop)...');
         await new Promise(r => setTimeout(r, 5000));
 
-        log('Clicando Next 1 (Crop)...');
-        await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]');
+        // Navegação Next -> Next
+        log('Next 1...');
+        let next1 = await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]');
+        if(!next1) next1 = await clickByText(page, ['Next', 'Avançar'], 'button');
+        if(!next1) throw new Error('Botão Next 1 não apareceu (Upload falhou?)');
+        
         await new Promise(r => setTimeout(r, 2000));
         
-        log('Clicando Next 2 (Filtros)...');
-        await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]');
-        await new Promise(r => setTimeout(r, 5000)); // Espera carregar a tela de legenda
+        log('Next 2...');
+        let next2 = await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]');
+        if(!next2) next2 = await clickByText(page, ['Next', 'Avançar'], 'button');
+        
+        await new Promise(r => setTimeout(r, 5000)); // Espera carregar campo de legenda
 
-        // --- DIAGNÓSTICO DE LEGENDA ---
-        let finalTextSnapshot = ""; // Para guardar o print final
+        // --- LEGENDA (MÉTODO V25 FORCED) ---
+        let finalTextSnapshot = ""; 
         
         if (legenda) {
             const cleanLegenda = cleanText(legenda);
-            log(`Tentando inserir texto (${cleanLegenda.length} chars)...`);
+            log(`Inserindo legenda (${cleanLegenda.length} chars)...`);
             
-            // 1. ACHAR O SELETOR
             const selector = 'div[role="dialog"] div[contenteditable="true"][role="textbox"]';
             let textArea = null;
-            try {
-                textArea = await page.waitForSelector(selector, { timeout: 5000 });
-                log('Seletor da caixa de texto ENCONTRADO.');
-            } catch (e) {
-                log('FALHA AO ACHAR SELETOR ESPECÍFICO. Tentando genérico...');
-                // Fallback
-            }
+            try { textArea = await page.waitForSelector(selector, { timeout: 5000 }); } catch (e) {}
 
             if (textArea) {
-                // 2. DESENHAR BORDA VERMELHA (DIAGNÓSTICO VISUAL)
-                log('Desenhando borda vermelha em volta do campo encontrado...');
+                // Desenha borda para debug
                 await page.evaluate((sel) => {
                     const el = document.querySelector(sel);
                     if(el) el.style.border = '5px solid red';
                 }, selector);
                 
-                // 3. TENTAR INSERIR TEXTO (FORÇADO)
-                log('Executando comando de inserção (execCommand)...');
-                await textArea.click(); // Foco
+                await textArea.click();
                 await new Promise(r => setTimeout(r, 500));
                 
-                await page.evaluate((txt) => {
-                    document.execCommand('insertText', false, txt);
-                }, cleanLegenda);
-                
-                await new Promise(r => setTimeout(r, 1000));
+                // Injeta texto e dispara eventos
+                log('Executando injecao de texto...');
+                const evalRes = await page.evaluate((sel, txt) => {
+                    const el = document.querySelector(sel);
+                    if (!el) return false;
+                    el.innerText = txt; 
+                    ['input', 'change', 'keydown', 'keyup'].forEach(evt => {
+                        el.dispatchEvent(new Event(evt, { bubbles: true }));
+                    });
+                    return true;
+                }, selector, cleanLegenda);
 
-                // 4. LER O QUE FICOU NA CAIXA
-                const content = await page.evaluate(el => el.innerText, textArea);
-                log(`Conteúdo lido na caixa após inserção: "${content}"`);
+                await new Promise(r => setTimeout(r, 1000));
+                
+                // Valida
+                const content = await page.evaluate(s => document.querySelector(s)?.innerText, selector);
+                log(`Texto lido após inserção: "${content?.substring(0,10)}..."`);
                 
                 if (!content || content.trim().length === 0) {
-                    log('ERRO: O texto não persistiu. Tentando fallback de Digitação...');
-                    await page.keyboard.type(cleanLegenda, { delay: 100 });
+                    log('AVISO: Texto vazio após injeção. Tentando fallback digitação...');
+                    await page.keyboard.type(cleanLegenda, { delay: 50 });
                 }
             } else {
-                log('ERRO CRÍTICO: Não achei onde digitar.');
+                log('AVISO: Caixa de legenda não encontrada.');
             }
         }
 
-        // TIRA FOTO DO RESULTADO (ANTES DE POSTAR)
-        // Isso vai pro JSON de resposta para você ver
-        log('Tirando print de diagnóstico...');
+        // Tira foto de diagnóstico
+        log('Capturando evidência...');
         const finalImgBuffer = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
         finalTextSnapshot = finalImgBuffer.toString('base64');
 
-        // Share (Só clica se tiver texto ou se o usuário quiser forçar)
-        log('Clicando em Compartilhar...');
+        // Share
+        log('Compartilhando...');
         let shareClicked = await clickByText(page, ['Share', 'Compartilhar'], 'div[role="button"]');
+        if(!shareClicked) shareClicked = await clickByText(page, ['Share', 'Compartilhar'], 'button');
         
         if (shareClicked) {
             await new Promise(r => setTimeout(r, 10000));
-            log('Processo finalizado. Verifique a imagem de diagnóstico.');
+            log('Finalizado.');
         } else {
-            log('ERRO: Botão Compartilhar não encontrado.');
+            log('ERRO: Botão Share não encontrado.');
         }
 
-        // RETORNA O RELATÓRIO (NÃO ERRO)
         return {
             status: "finished",
             logs: debugLog,
-            // Retorna a imagem em base64 para você ver no n8n
             debug_image: finalTextSnapshot 
         };
 
     } catch (error) {
         log(`ERRO FATAL: ${error.message}`);
-        // Tenta tirar print do erro
         let errImg = "";
         if (page && !page.isClosed()) {
             try { 
@@ -249,17 +257,15 @@ async function runInstagramBot(body, file) {
     }
 }
 
-// ROTA INSTAGRAM UNIFICADA
 app.post('/instagram', upload.single('imagem'), async (req, res) => {
     req.setTimeout(1200000); res.setTimeout(1200000);
     
     addJobToQueue(() => runInstagramBot(req.body, req.file))
         .then((result) => {
-            // Retorna sempre 200 para o n8n ler o JSON, mesmo se deu erro lógico
             res.status(200).json(result);
         })
         .catch((err) => {
-            res.status(500).json({ error: "Erro interno no servidor", details: err.message });
+            res.status(500).json({ error: "Erro interno", details: err.message });
         });
 });
 
