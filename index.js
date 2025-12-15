@@ -26,7 +26,7 @@ const requestQueue = [];
 process.on('uncaughtException', (err) => { console.error('⚠️ CRITICAL:', err); });
 process.on('unhandledRejection', (reason, promise) => { console.error('⚠️ REJECTION:', reason); });
 
-const server = app.listen(PORT, () => console.log(`Super Bot V27 (Hybrid Upload) running on ${PORT}`));
+const server = app.listen(PORT, () => console.log(`Super Bot V28 (Target Lock) running on ${PORT}`));
 server.setTimeout(1200000); 
 
 app.use(express.json({ limit: '100mb' }));
@@ -70,7 +70,7 @@ function cleanText(text) {
     return text.replace(/[\u{1F600}-\u{1F6FF}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2702}-\u{27B0}\u{24C2}-\u{1F251}]/gu, '');
 }
 
-// Função de clique mais agressiva
+// Função de clique genérico
 async function clickByText(page, textsToFind, tag = '*') {
     try {
         return await page.evaluate((texts, tagName) => {
@@ -87,10 +87,10 @@ async function clickByText(page, textsToFind, tag = '*') {
     } catch (e) { return false; }
 }
 
-app.get('/', (req, res) => res.send(`Bot V27 Hybrid. Queue: ${requestQueue.length}`));
+app.get('/', (req, res) => res.send(`Bot V28 Target Lock. Queue: ${requestQueue.length}`));
 
 // ==========================================
-// CORE LOGIC - INSTAGRAM V27
+// CORE LOGIC - INSTAGRAM V28
 // ==========================================
 async function runInstagramBot(body, file) {
     let imagePath = file ? file.path : null;
@@ -110,11 +110,17 @@ async function runInstagramBot(body, file) {
         if (!imagePath && imagemUrl) try { imagePath = await downloadImage(imagemUrl); } catch (e) {}
         if (!imagePath) throw new Error('No Image provided');
         
-        log('Iniciando navegador...');
-        const args = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--window-size=1366,768', '--start-maximized'];
+        log('Iniciando navegador (FullHD)...');
+        const args = [
+            '--no-sandbox', 
+            '--disable-setuid-sandbox', 
+            '--disable-dev-shm-usage', 
+            '--window-size=1920,1080',  // Aumentado para garantir layout Desktop
+            '--start-maximized'
+        ];
         if (USE_PROXY) args.push(`--proxy-server=${PROXY_HOST}`);
 
-        browser = await puppeteer.launch({ headless: true, args, defaultViewport: { width: 1366, height: 768 } });
+        browser = await puppeteer.launch({ headless: true, args, defaultViewport: { width: 1920, height: 1080 } });
         page = await browser.newPage();
         if (USE_PROXY && PROXY_USER) await page.authenticate({ username: PROXY_USER, password: PROXY_PASS });
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
@@ -124,98 +130,134 @@ async function runInstagramBot(body, file) {
 
         log('Indo para Home...');
         await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-        await new Promise(r => setTimeout(r, 4000));
+        await new Promise(r => setTimeout(r, 5000));
+        
+        // Limpeza inicial: Fecha modais "Not Now" ou Posts abertos sem querer
         await clickByText(page, ['Not Now', 'Agora não', 'Cancel']);
+        
+        // Verifica se tem algum "X" (Close) na tela de um post aberto e fecha
+        const closeBtn = await page.$('svg[aria-label="Close"], svg[aria-label="Fechar"]');
+        if(closeBtn) {
+            log('Janela indesejada detectada. Fechando...');
+            await closeBtn.click();
+            await new Promise(r => setTimeout(r, 2000));
+        }
 
-        // --- ABERTURA DO MODAL (REFORÇADA) ---
-        log('Abrindo Modal Criar...');
+        // --- ABERTURA DO MODAL (MIRA NO ÍCONE) ---
+        log('Buscando ícone de "Nova publicação"...');
         let modalOpen = false;
         
-        // Tenta abrir até 2 vezes
-        for(let i=0; i<2; i++) {
-            let createFound = await clickByText(page, ['Create', 'Criar'], 'span');
-            if(!createFound) {
-                 const svgSelector = 'svg[aria-label="New post"], svg[aria-label="Nova publicação"], svg[aria-label="Create"]';
-                 if(await page.$(svgSelector)) { await page.click(svgSelector); createFound = true; }
+        // Seletores de ÍCONE APENAS (Sem busca por texto solto)
+        // Isso evita clicar em posts que tenham a palavra "Criar" na legenda
+        const createSelectors = [
+            'svg[aria-label="New post"]',
+            'svg[aria-label="Nova publicação"]',
+            'svg[aria-label="Create"]',
+            'svg[aria-label="Criar"]'
+        ];
+
+        for(let i=0; i<3; i++) {
+            // Tenta clicar no SVG diretamente
+            let clicked = false;
+            for (const sel of createSelectors) {
+                const el = await page.$(sel);
+                if (el) {
+                    // Clica no elemento pai (o botão/link em volta do SVG)
+                    await el.evaluate(e => e.closest('a, button, div[role="button"]').click());
+                    clicked = true;
+                    log(`Cliquei no ícone: ${sel}`);
+                    break;
+                }
+            }
+
+            if (!clicked) {
+                log(`Ícone não achado na tentativa ${i+1}.`);
             }
             
             await new Promise(r => setTimeout(r, 3000));
             
-            // Verifica se abriu procurando pelo texto de "Arrastar fotos" ou o header do modal
+            // Verifica se abriu o modal certo (procura pelo texto do header "Criar...")
             modalOpen = await page.evaluate(() => {
-                const bodyText = document.body.innerText;
-                return bodyText.includes('Drag photos') || bodyText.includes('Arrastar fotos') || document.querySelector('div[role="dialog"]');
+                const h1s = [...document.querySelectorAll('h1, div')];
+                return h1s.some(h => 
+                    h.innerText === 'Create new post' || 
+                    h.innerText === 'Criar nova publicação' ||
+                    h.innerText === 'Drag photos and videos here'
+                );
             });
 
             if(modalOpen) break;
-            log('Modal não abriu na tentativa ' + (i+1) + ', tentando de novo...');
+            log('Modal não confirmou abertura. Tentando de novo...');
         }
 
-        if(!modalOpen) throw new Error('Falha crítica: Modal de criação não abriu após tentativas.');
-        log('Modal CONFIRMADO aberto.');
+        if(!modalOpen) {
+            // Última tentativa: Print para debug e erro
+            const errShot = await page.screenshot({type: 'jpeg', quality: 60, fullPage: true});
+            return {
+                status: "error",
+                error: "Menu de criação não encontrado. Verifique imagem.",
+                debug_image: errShot.toString('base64'),
+                logs: debugLog
+            };
+        }
+        
+        log('Modal de Criação ABERTO com sucesso.');
 
-        // --- UPLOAD HÍBRIDO (V19 + V26) ---
+        // --- UPLOAD HÍBRIDO ---
         log('Iniciando Upload...');
         let uploadSuccess = false;
 
-        // Tenta achar o input direto primeiro (Mais rápido)
+        // Tenta input oculto (V26)
         const fileInput = await page.$('input[type="file"]');
         if (fileInput) {
-            log('Input de arquivo encontrado direto no DOM. Uploading...');
+            log('Input oculto encontrado. Uploading...');
             await fileInput.uploadFile(imagePath);
             uploadSuccess = true;
         } else {
-            // Se não achou input, tenta o método FileChooser (Clicar no botão azul)
-            log('Input oculto não achado. Tentando clicar no botão "Select"...');
+            // Fallback para botão azul (V19)
+            log('Input oculto não achado. Tentando botão azul...');
             try {
                 const fileChooserPromise = page.waitForFileChooser({ timeout: 5000 });
-                const btnClicked = await clickByText(page, ['Select from computer', 'Selecionar do computador', 'Select'], 'button');
-                
+                const btnClicked = await clickByText(page, ['Select from computer', 'Selecionar do computador'], 'button');
                 if(btnClicked) {
                     const fileChooser = await fileChooserPromise;
                     await fileChooser.accept([imagePath]);
                     uploadSuccess = true;
-                    log('Upload via FileChooser iniciado.');
                 }
-            } catch(e) {
-                log('Erro no FileChooser: ' + e.message);
-            }
+            } catch(e) { log('Falha no FileChooser: ' + e.message); }
         }
 
-        if(!uploadSuccess) throw new Error('Todos os métodos de upload falharam.');
+        if(!uploadSuccess) throw new Error('Falha no upload da imagem.');
 
-        log('Aguardando tela de corte (Crop)...');
-        // Espera o botão "Next" aparecer para confirmar que o upload rolou
-        try {
-            await page.waitForFunction(() => {
-                const btns = [...document.querySelectorAll('div[role="button"]')];
-                return btns.some(b => b.innerText.includes('Next') || b.innerText.includes('Avançar'));
-            }, { timeout: 15000 });
-        } catch(e) {
-            throw new Error('Upload parece ter travado (Botão Next não apareceu).');
-        }
+        log('Aguardando Crop...');
+        // Espera botão Next
+        await page.waitForFunction(() => {
+            const btns = [...document.querySelectorAll('div[role="button"]')];
+            return btns.some(b => b.innerText.includes('Next') || b.innerText.includes('Avançar'));
+        }, { timeout: 20000 });
 
-        log('Next 1 (Crop)...');
+        log('Next 1...');
         await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]');
         await new Promise(r => setTimeout(r, 2000));
         
-        log('Next 2 (Filtros)...');
+        log('Next 2...');
         await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]');
         await new Promise(r => setTimeout(r, 5000)); 
 
-        // --- LEGENDA (MÉTODO V25 - EXEC COMMAND) ---
+        // --- LEGENDA (MÉTODO V25) ---
         if (legenda) {
             const cleanLegenda = cleanText(legenda);
             log(`Inserindo legenda...`);
             
             const selector = 'div[role="dialog"] div[contenteditable="true"][role="textbox"]';
             let textArea = null;
-            try { textArea = await page.waitForSelector(selector, { timeout: 5000 }); } catch (e) {}
+            try { textArea = await page.waitForSelector(selector, { timeout: 8000 }); } catch (e) {}
 
             if (textArea) {
+                // Desenha borda
                 await page.evaluate((sel) => {
                     const el = document.querySelector(sel);
-                    if(el) el.style.border = '3px solid blue'; // Marca visual
+                    if(el) el.style.border = '3px solid green'; 
                 }, selector);
                 
                 await textArea.click();
@@ -234,29 +276,27 @@ async function runInstagramBot(body, file) {
 
                 await new Promise(r => setTimeout(r, 1000));
                 
-                // Valida e fallback
+                // Valida
                 const content = await page.evaluate(s => document.querySelector(s)?.innerText, selector);
                 if (!content || content.trim().length === 0) {
-                    log('AVISO: Injeção falhou. Tentando digitação lenta...');
-                    await page.keyboard.type(cleanLegenda, { delay: 100 });
+                    log('AVISO: Injeção falhou. Tentando digitação...');
+                    await page.keyboard.type(cleanLegenda, { delay: 50 });
                 }
             } else {
                 log('AVISO: Caixa de legenda não encontrada.');
             }
         }
 
-        // Tira foto de diagnóstico antes de enviar
         const finalImgBuffer = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
         finalTextSnapshot = finalImgBuffer.toString('base64');
 
         // Share
         log('Compartilhando...');
         let shareClicked = await clickByText(page, ['Share', 'Compartilhar'], 'div[role="button"]');
-        if(!shareClicked) shareClicked = await clickByText(page, ['Share', 'Compartilhar'], 'button');
         
         if (shareClicked) {
             await new Promise(r => setTimeout(r, 10000));
-            log('Finalizado com sucesso provável.');
+            log('Finalizado.');
         } else {
             log('ERRO: Botão Share não encontrado.');
         }
