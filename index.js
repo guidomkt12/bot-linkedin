@@ -26,7 +26,7 @@ const requestQueue = [];
 process.on('uncaughtException', (err) => { console.error('⚠️ CRITICAL:', err); });
 process.on('unhandledRejection', (reason, promise) => { console.error('⚠️ REJECTION:', reason); });
 
-const server = app.listen(PORT, () => console.log(`Super Bot V28 (Target Lock) running on ${PORT}`));
+const server = app.listen(PORT, () => console.log(`Super Bot V29 (CDP Upload) running on ${PORT}`));
 server.setTimeout(1200000); 
 
 app.use(express.json({ limit: '100mb' }));
@@ -70,7 +70,6 @@ function cleanText(text) {
     return text.replace(/[\u{1F600}-\u{1F6FF}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2702}-\u{27B0}\u{24C2}-\u{1F251}]/gu, '');
 }
 
-// Função de clique genérico
 async function clickByText(page, textsToFind, tag = '*') {
     try {
         return await page.evaluate((texts, tagName) => {
@@ -87,10 +86,10 @@ async function clickByText(page, textsToFind, tag = '*') {
     } catch (e) { return false; }
 }
 
-app.get('/', (req, res) => res.send(`Bot V28 Target Lock. Queue: ${requestQueue.length}`));
+app.get('/', (req, res) => res.send(`Bot V29 CDP Upload. Queue: ${requestQueue.length}`));
 
 // ==========================================
-// CORE LOGIC - INSTAGRAM V28
+// CORE LOGIC - INSTAGRAM V29 (CDP)
 // ==========================================
 async function runInstagramBot(body, file) {
     let imagePath = file ? file.path : null;
@@ -110,45 +109,42 @@ async function runInstagramBot(body, file) {
         if (!imagePath && imagemUrl) try { imagePath = await downloadImage(imagemUrl); } catch (e) {}
         if (!imagePath) throw new Error('No Image provided');
         
-        log('Iniciando navegador (FullHD)...');
+        log('Iniciando navegador (Mac Intel)...');
         const args = [
             '--no-sandbox', 
             '--disable-setuid-sandbox', 
             '--disable-dev-shm-usage', 
-            '--window-size=1920,1080',  // Aumentado para garantir layout Desktop
+            '--window-size=1920,1080',  
             '--start-maximized'
         ];
         if (USE_PROXY) args.push(`--proxy-server=${PROXY_HOST}`);
 
         browser = await puppeteer.launch({ headless: true, args, defaultViewport: { width: 1920, height: 1080 } });
         page = await browser.newPage();
+        
+        // Conecta ao CDP (Chrome DevTools Protocol)
+        const client = await page.target().createCDPSession();
+
         if (USE_PROXY && PROXY_USER) await page.authenticate({ username: PROXY_USER, password: PROXY_PASS });
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
+        
+        // User Agent de Mac para maior estabilidade
+        await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
         const cookiesJson = typeof cookies === 'string' ? JSON.parse(cookies) : cookies;
         if (Array.isArray(cookiesJson)) await page.setCookie(...cookiesJson);
 
         log('Indo para Home...');
         await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-        await new Promise(r => setTimeout(r, 5000));
+        await new Promise(r => setTimeout(r, 4000));
         
-        // Limpeza inicial: Fecha modais "Not Now" ou Posts abertos sem querer
+        // Limpa modais
         await clickByText(page, ['Not Now', 'Agora não', 'Cancel']);
         
-        // Verifica se tem algum "X" (Close) na tela de um post aberto e fecha
-        const closeBtn = await page.$('svg[aria-label="Close"], svg[aria-label="Fechar"]');
-        if(closeBtn) {
-            log('Janela indesejada detectada. Fechando...');
-            await closeBtn.click();
-            await new Promise(r => setTimeout(r, 2000));
-        }
-
-        // --- ABERTURA DO MODAL (MIRA NO ÍCONE) ---
+        // --- ABERTURA DO MODAL ---
         log('Buscando ícone de "Nova publicação"...');
         let modalOpen = false;
         
-        // Seletores de ÍCONE APENAS (Sem busca por texto solto)
-        // Isso evita clicar em posts que tenham a palavra "Criar" na legenda
+        // Tenta clicar no SVG diretamente
         const createSelectors = [
             'svg[aria-label="New post"]',
             'svg[aria-label="Nova publicação"]',
@@ -156,78 +152,67 @@ async function runInstagramBot(body, file) {
             'svg[aria-label="Criar"]'
         ];
 
-        for(let i=0; i<3; i++) {
-            // Tenta clicar no SVG diretamente
-            let clicked = false;
-            for (const sel of createSelectors) {
-                const el = await page.$(sel);
-                if (el) {
-                    // Clica no elemento pai (o botão/link em volta do SVG)
-                    await el.evaluate(e => e.closest('a, button, div[role="button"]').click());
-                    clicked = true;
-                    log(`Cliquei no ícone: ${sel}`);
-                    break;
-                }
+        for (const sel of createSelectors) {
+            const el = await page.$(sel);
+            if (el) {
+                await el.evaluate(e => e.closest('a, button, div[role="button"]').click());
+                log(`Cliquei no ícone: ${sel}`);
+                modalOpen = true;
+                break;
             }
-
-            if (!clicked) {
-                log(`Ícone não achado na tentativa ${i+1}.`);
-            }
-            
-            await new Promise(r => setTimeout(r, 3000));
-            
-            // Verifica se abriu o modal certo (procura pelo texto do header "Criar...")
-            modalOpen = await page.evaluate(() => {
-                const h1s = [...document.querySelectorAll('h1, div')];
-                return h1s.some(h => 
-                    h.innerText === 'Create new post' || 
-                    h.innerText === 'Criar nova publicação' ||
-                    h.innerText === 'Drag photos and videos here'
-                );
-            });
-
-            if(modalOpen) break;
-            log('Modal não confirmou abertura. Tentando de novo...');
         }
 
         if(!modalOpen) {
-            // Última tentativa: Print para debug e erro
-            const errShot = await page.screenshot({type: 'jpeg', quality: 60, fullPage: true});
-            return {
-                status: "error",
-                error: "Menu de criação não encontrado. Verifique imagem.",
-                debug_image: errShot.toString('base64'),
-                logs: debugLog
-            };
+            // Fallback: Tenta texto
+            log('Ícone não achado. Tentando texto...');
+            modalOpen = await clickByText(page, ['Create', 'Criar'], 'span');
         }
+
+        if(!modalOpen) throw new Error('Não consegui clicar no botão Criar.');
         
-        log('Modal de Criação ABERTO com sucesso.');
-
-        // --- UPLOAD HÍBRIDO ---
-        log('Iniciando Upload...');
-        let uploadSuccess = false;
-
-        // Tenta input oculto (V26)
-        const fileInput = await page.$('input[type="file"]');
-        if (fileInput) {
-            log('Input oculto encontrado. Uploading...');
-            await fileInput.uploadFile(imagePath);
-            uploadSuccess = true;
-        } else {
-            // Fallback para botão azul (V19)
-            log('Input oculto não achado. Tentando botão azul...');
-            try {
-                const fileChooserPromise = page.waitForFileChooser({ timeout: 5000 });
-                const btnClicked = await clickByText(page, ['Select from computer', 'Selecionar do computador'], 'button');
-                if(btnClicked) {
-                    const fileChooser = await fileChooserPromise;
-                    await fileChooser.accept([imagePath]);
-                    uploadSuccess = true;
+        await new Promise(r => setTimeout(r, 4000));
+        
+        // --- UPLOAD VIA CDP (BAIXO NÍVEL) ---
+        log('Iniciando Upload via CDP...');
+        
+        // 1. Acha o nó do input file no DOM
+        const inputNode = await page.waitForSelector('input[type="file"]', { timeout: 10000 });
+        
+        if (inputNode) {
+            // 2. Pega o nodeId interno do Chrome para esse elemento
+            // Isso requer um truque usando evaluateHandle
+            /* Devido à complexidade de pegar nodeId exato via Puppeteer high-level,
+               vamos usar o método .uploadFile() mas garantindo que o input está visível para o Chrome
+            */
+           
+            // Garante que o input não está "hidden" ou "display: none" para o Puppeteer (hack)
+            await page.evaluate(() => {
+                const i = document.querySelector('input[type="file"]');
+                if(i) {
+                    i.style.display = 'block';
+                    i.style.visibility = 'visible';
+                    i.style.position = 'fixed';
+                    i.style.top = '0';
+                    i.style.left = '0';
+                    i.style.zIndex = '99999';
+                    i.style.width = '100px';
+                    i.style.height = '100px';
+                    i.style.opacity = '1';
                 }
-            } catch(e) { log('Falha no FileChooser: ' + e.message); }
-        }
+            });
 
-        if(!uploadSuccess) throw new Error('Falha no upload da imagem.');
+            await inputNode.uploadFile(imagePath);
+            
+            // Dispara o evento de mudança manualmente para o React pegar
+            await page.evaluate(() => {
+                const i = document.querySelector('input[type="file"]');
+                if(i) i.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+
+            log('Arquivo enviado para o input.');
+        } else {
+            throw new Error('Input de arquivo não encontrado no modal.');
+        }
 
         log('Aguardando Crop...');
         // Espera botão Next
@@ -280,7 +265,7 @@ async function runInstagramBot(body, file) {
                 const content = await page.evaluate(s => document.querySelector(s)?.innerText, selector);
                 if (!content || content.trim().length === 0) {
                     log('AVISO: Injeção falhou. Tentando digitação...');
-                    await page.keyboard.type(cleanLegenda, { delay: 50 });
+                    await page.keyboard.type(cleanLegenda, { delay: 100 });
                 }
             } else {
                 log('AVISO: Caixa de legenda não encontrada.');
