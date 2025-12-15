@@ -26,7 +26,7 @@ const requestQueue = [];
 process.on('uncaughtException', (err) => { console.error('⚠️ CRITICAL:', err); });
 process.on('unhandledRejection', (reason, promise) => { console.error('⚠️ REJECTION:', reason); });
 
-const server = app.listen(PORT, () => console.log(`Super Bot V29 (CDP Upload) running on ${PORT}`));
+const server = app.listen(PORT, () => console.log(`Super Bot V30 (Patient Uploader) running on ${PORT}`));
 server.setTimeout(1200000); 
 
 app.use(express.json({ limit: '100mb' }));
@@ -86,10 +86,10 @@ async function clickByText(page, textsToFind, tag = '*') {
     } catch (e) { return false; }
 }
 
-app.get('/', (req, res) => res.send(`Bot V29 CDP Upload. Queue: ${requestQueue.length}`));
+app.get('/', (req, res) => res.send(`Bot V30 Patient. Queue: ${requestQueue.length}`));
 
 // ==========================================
-// CORE LOGIC - INSTAGRAM V29 (CDP)
+// CORE LOGIC - INSTAGRAM V30
 // ==========================================
 async function runInstagramBot(body, file) {
     let imagePath = file ? file.path : null;
@@ -122,12 +122,8 @@ async function runInstagramBot(body, file) {
         browser = await puppeteer.launch({ headless: true, args, defaultViewport: { width: 1920, height: 1080 } });
         page = await browser.newPage();
         
-        // Conecta ao CDP (Chrome DevTools Protocol)
-        const client = await page.target().createCDPSession();
-
         if (USE_PROXY && PROXY_USER) await page.authenticate({ username: PROXY_USER, password: PROXY_PASS });
         
-        // User Agent de Mac para maior estabilidade
         await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
         const cookiesJson = typeof cookies === 'string' ? JSON.parse(cookies) : cookies;
@@ -137,14 +133,11 @@ async function runInstagramBot(body, file) {
         await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
         await new Promise(r => setTimeout(r, 4000));
         
-        // Limpa modais
         await clickByText(page, ['Not Now', 'Agora não', 'Cancel']);
         
         // --- ABERTURA DO MODAL ---
         log('Buscando ícone de "Nova publicação"...');
         let modalOpen = false;
-        
-        // Tenta clicar no SVG diretamente
         const createSelectors = [
             'svg[aria-label="New post"]',
             'svg[aria-label="Nova publicação"]',
@@ -163,63 +156,57 @@ async function runInstagramBot(body, file) {
         }
 
         if(!modalOpen) {
-            // Fallback: Tenta texto
             log('Ícone não achado. Tentando texto...');
             modalOpen = await clickByText(page, ['Create', 'Criar'], 'span');
         }
 
         if(!modalOpen) throw new Error('Não consegui clicar no botão Criar.');
         
-        await new Promise(r => setTimeout(r, 4000));
+        await new Promise(r => setTimeout(r, 5000)); // Espera o modal carregar
         
-        // --- UPLOAD VIA CDP (BAIXO NÍVEL) ---
-        log('Iniciando Upload via CDP...');
+        // --- UPLOAD PACIENTE (V30) ---
+        log('Procurando input de arquivo...');
         
-        // 1. Acha o nó do input file no DOM
-        const inputNode = await page.waitForSelector('input[type="file"]', { timeout: 10000 });
+        let fileInput = await page.$('input[type="file"]');
         
-        if (inputNode) {
-            // 2. Pega o nodeId interno do Chrome para esse elemento
-            // Isso requer um truque usando evaluateHandle
-            /* Devido à complexidade de pegar nodeId exato via Puppeteer high-level,
-               vamos usar o método .uploadFile() mas garantindo que o input está visível para o Chrome
-            */
-           
-            // Garante que o input não está "hidden" ou "display: none" para o Puppeteer (hack)
-            await page.evaluate(() => {
-                const i = document.querySelector('input[type="file"]');
-                if(i) {
-                    i.style.display = 'block';
-                    i.style.visibility = 'visible';
-                    i.style.position = 'fixed';
-                    i.style.top = '0';
-                    i.style.left = '0';
-                    i.style.zIndex = '99999';
-                    i.style.width = '100px';
-                    i.style.height = '100px';
-                    i.style.opacity = '1';
-                }
-            });
+        // Se não achou de primeira, força um clique no botão azul do meio
+        if (!fileInput) {
+            log('Input não visível. Clicando no botão azul central...');
+            await clickByText(page, ['Select from computer', 'Selecionar do computador'], 'button');
+            await new Promise(r => setTimeout(r, 2000));
+            fileInput = await page.$('input[type="file"]');
+        }
 
-            await inputNode.uploadFile(imagePath);
-            
-            // Dispara o evento de mudança manualmente para o React pegar
+        if (fileInput) {
+            log('Input encontrado! Enviando arquivo...');
+            await fileInput.uploadFile(imagePath);
+            // Dispara evento de mudança para garantir
             await page.evaluate(() => {
                 const i = document.querySelector('input[type="file"]');
                 if(i) i.dispatchEvent(new Event('change', { bubbles: true }));
             });
-
-            log('Arquivo enviado para o input.');
         } else {
-            throw new Error('Input de arquivo não encontrado no modal.');
+            // Última tentativa: injetar o input na marra se ele não existir (Hack extremo)
+            log('Input sumiu. Tentando injeção forçada...');
+            await page.evaluate(() => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.style.display = 'block';
+                document.body.appendChild(input);
+            });
+            const forcedInput = await page.$('input[type="file"]');
+            await forcedInput.uploadFile(imagePath);
         }
 
-        log('Aguardando Crop...');
-        // Espera botão Next
-        await page.waitForFunction(() => {
-            const btns = [...document.querySelectorAll('div[role="button"]')];
-            return btns.some(b => b.innerText.includes('Next') || b.innerText.includes('Avançar'));
-        }, { timeout: 20000 });
+        log('Aguardando Crop (Botão Next)...');
+        try {
+            await page.waitForFunction(() => {
+                const btns = [...document.querySelectorAll('div[role="button"]')];
+                return btns.some(b => b.innerText.includes('Next') || b.innerText.includes('Avançar'));
+            }, { timeout: 25000 }); // Mais tempo para upload lento
+        } catch(e) {
+            throw new Error('Upload travou ou botão Next não apareceu.');
+        }
 
         log('Next 1...');
         await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]');
@@ -239,7 +226,6 @@ async function runInstagramBot(body, file) {
             try { textArea = await page.waitForSelector(selector, { timeout: 8000 }); } catch (e) {}
 
             if (textArea) {
-                // Desenha borda
                 await page.evaluate((sel) => {
                     const el = document.querySelector(sel);
                     if(el) el.style.border = '3px solid green'; 
@@ -248,7 +234,6 @@ async function runInstagramBot(body, file) {
                 await textArea.click();
                 await new Promise(r => setTimeout(r, 500));
                 
-                // Injeta texto
                 const evalRes = await page.evaluate((sel, txt) => {
                     const el = document.querySelector(sel);
                     if (!el) return false;
@@ -261,7 +246,6 @@ async function runInstagramBot(body, file) {
 
                 await new Promise(r => setTimeout(r, 1000));
                 
-                // Valida
                 const content = await page.evaluate(s => document.querySelector(s)?.innerText, selector);
                 if (!content || content.trim().length === 0) {
                     log('AVISO: Injeção falhou. Tentando digitação...');
