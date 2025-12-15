@@ -26,7 +26,7 @@ const requestQueue = [];
 process.on('uncaughtException', (err) => { console.error('⚠️ CRITICAL:', err); });
 process.on('unhandledRejection', (reason, promise) => { console.error('⚠️ REJECTION:', reason); });
 
-const server = app.listen(PORT, () => console.log(`Super Bot V43 (DOM Surgeon) running on ${PORT}`));
+const server = app.listen(PORT, () => console.log(`Super Bot V33 (Completed) running on ${PORT}`));
 server.setTimeout(1200000); 
 
 app.use(express.json({ limit: '100mb' }));
@@ -70,30 +70,26 @@ function cleanText(text) {
     return text.replace(/[\u{1F600}-\u{1F6FF}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2702}-\u{27B0}\u{24C2}-\u{1F251}]/gu, '');
 }
 
-async function tapByText(page, textOptions) {
+async function clickByText(page, textsToFind, tag = '*') {
     try {
-        const xpaths = textOptions.map(t => `contains(text(), "${t}")`);
-        const query = `//*[${xpaths.join(' or ')}]`;
-        const elements = await page.$x(query);
-        if (elements.length > 0) {
+        return await page.evaluate((texts, tagName) => {
+            const elements = [...document.querySelectorAll(tagName)];
             for (const el of elements) {
-                try {
-                    const box = await el.boundingBox();
-                    if(box) {
-                        await el.tap();
-                        return true;
-                    }
-                } catch (e) {}
+                const txt = el.innerText || el.getAttribute('aria-label') || '';
+                if (texts.some(t => txt.toLowerCase().includes(t.toLowerCase()))) {
+                    el.click();
+                    return true;
+                }
             }
-        }
-        return false;
+            return false;
+        }, textsToFind, tag);
     } catch (e) { return false; }
 }
 
-app.get('/', (req, res) => res.send(`Bot V43 DOM Surgeon. Queue: ${requestQueue.length}`));
+app.get('/', (req, res) => res.send(`Bot V33 Complete. Queue: ${requestQueue.length}`));
 
 // ==========================================
-// CORE LOGIC - INSTAGRAM V43
+// 1. INSTAGRAM (V33 - Frankenstein)
 // ==========================================
 async function runInstagramBot(body, file) {
     let imagePath = file ? file.path : null;
@@ -104,7 +100,7 @@ async function runInstagramBot(body, file) {
     
     const log = (msg) => {
         const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
-        console.log(`[Insta V43] ${msg}`);
+        console.log(`[Insta] ${msg}`);
         debugLog.push(`[${timestamp}] ${msg}`);
     };
 
@@ -113,157 +109,114 @@ async function runInstagramBot(body, file) {
         if (!imagePath && imagemUrl) try { imagePath = await downloadImage(imagemUrl); } catch (e) {}
         if (!imagePath) throw new Error('No Image provided');
         
-        log('Iniciando navegador Mobile Manual...');
-        const args = [
-            '--no-sandbox', 
-            '--disable-setuid-sandbox', 
-            '--disable-dev-shm-usage',
-            '--window-size=390,844', 
-            '--start-maximized'
-        ];
+        log('Iniciando navegador...');
+        const args = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--window-size=1366,768', '--start-maximized'];
         if (USE_PROXY) args.push(`--proxy-server=${PROXY_HOST}`);
 
-        browser = await puppeteer.launch({ headless: true, args, defaultViewport: null });
+        browser = await puppeteer.launch({ headless: true, args, defaultViewport: { width: 1366, height: 768 } });
         page = await browser.newPage();
-        
-        await page.setUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1');
-        await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
-
         if (USE_PROXY && PROXY_USER) await page.authenticate({ username: PROXY_USER, password: PROXY_PASS });
+        
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
 
         const cookiesJson = typeof cookies === 'string' ? JSON.parse(cookies) : cookies;
         if (Array.isArray(cookiesJson)) await page.setCookie(...cookiesJson);
 
-        log('Home...');
+        log('Indo para Home...');
         await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
         await new Promise(r => setTimeout(r, 4000));
-        await tapByText(page, ['Not Now', 'Agora não', 'Cancel', 'Cancelar']);
+        await clickByText(page, ['Not Now', 'Agora não', 'Cancel']);
         
-        // --- UPLOAD ---
-        log('Upload...');
-        const newPostSelector = 'svg[aria-label="New post"], svg[aria-label="Nova publicação"], svg[aria-label="Create"]';
-        const newPostBtn = await page.$(newPostSelector);
+        // --- ABERTURA DO MODAL ---
+        log('Abrindo Modal Criar...');
+        let createFound = false;
         
-        if (newPostBtn) {
-            const fileChooserPromise = page.waitForFileChooser({ timeout: 10000 });
-            await newPostBtn.tap(); 
-            const fileChooser = await fileChooserPromise;
-            await fileChooser.accept([imagePath]);
+        // Tenta Ícone
+        const createSelector = 'svg[aria-label="New post"], svg[aria-label="Nova publicação"], svg[aria-label="Create"], svg[aria-label="Criar"]';
+        const iconEl = await page.$(createSelector);
+        if (iconEl) {
+             await iconEl.evaluate(e => e.closest('a, button, div[role="button"]').click());
+             createFound = true;
         } else {
-             const inputUpload = await page.$('input[type="file"]');
-             if(inputUpload) {
-                 await inputUpload.uploadFile(imagePath);
-                 await inputUpload.evaluate(e => e.dispatchEvent(new Event('change', { bubbles: true })));
-             } else {
-                 throw new Error('Botão/Input upload não encontrado.');
-             }
+             createFound = await clickByText(page, ['Create', 'Criar'], 'span');
         }
         
-        log('Aguardando Crop...');
-        await new Promise(r => setTimeout(r, 6000));
-
-        // --- NAVEGAÇÃO ---
-        log('Next 1...');
-        let clickedNext = await tapByText(page, ['Next', 'Avançar']);
-        if (!clickedNext) await page.mouse.click(350, 50); 
-
+        if(!createFound) throw new Error('Botão Create não encontrado');
         await new Promise(r => setTimeout(r, 3000));
 
-        log('Next 2...');
-        clickedNext = await tapByText(page, ['Next', 'Avançar']);
-        if (!clickedNext) await page.mouse.click(350, 50);
+        // --- UPLOAD (MÉTODO CLÁSSICO) ---
+        log('Selecionando arquivo (FileChooser)...');
+        try {
+            const fileChooserPromise = page.waitForFileChooser({timeout: 10000});
+            const btnClicked = await clickByText(page, ['Select from computer', 'Selecionar do computador', 'Select'], 'button');
+            
+            if (btnClicked) {
+                const fileChooser = await fileChooserPromise;
+                await fileChooser.accept([imagePath]);
+                log('Upload iniciado.');
+            } else {
+                throw new Error('Botão azul não clicável.');
+            }
+        } catch (e) {
+            log('Erro no upload: ' + e.message);
+            throw e;
+        }
+
+        log('Aguardando Crop...');
+        await page.waitForFunction(() => {
+            const btns = [...document.querySelectorAll('div[role="button"]')];
+            return btns.some(b => b.innerText.includes('Next') || b.innerText.includes('Avançar'));
+        }, { timeout: 40000 });
+
+        log('Next 1...');
+        await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]');
+        await new Promise(r => setTimeout(r, 2000));
         
+        log('Next 2...');
+        await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]');
         await new Promise(r => setTimeout(r, 5000)); 
 
-        // --- LEGENDA (MÉTODO CIRURGIA DOM) ---
+        // --- LEGENDA (MÉTODO INJEÇÃO) ---
         if (legenda) {
             const cleanLegenda = cleanText(legenda);
-            log(`Procurando textarea estrutural (_abrw > textarea)...`);
+            log(`Inserindo legenda (${cleanLegenda.length} chars)...`);
             
-            // SELETOR EXATO BASEADO NO SEU HTML
-            // ._abrw é a classe da div que envolve o textarea
-            const structuralSelector = 'div._abrw textarea'; 
+            const selector = 'div[role="dialog"] div[contenteditable="true"][role="textbox"]';
+            try { await page.waitForSelector(selector, { timeout: 8000 }); } catch(e){}
             
-            let textArea = null;
-            try {
-                textArea = await page.waitForSelector(structuralSelector, { timeout: 8000, visible: true });
-            } catch(e) {
-                log('Seletor estrutural falhou. Tentando genérico...');
-                textArea = await page.$('textarea');
-            }
-
+            const textArea = await page.$(selector);
             if (textArea) {
-                log('Campo encontrado! Focando...');
-                await textArea.tap();
+                await textArea.click();
                 await new Promise(r => setTimeout(r, 500));
-                
-                // MÉTODOS DE DIGITAÇÃO HÍBRIDOS
-                // 1. Tenta Digitação Lenta
-                try {
-                    await page.keyboard.type(cleanLegenda, { delay: 50 });
-                } catch(e) { log('Erro ao digitar: ' + e.message); }
+
+                await page.evaluate((sel, txt) => {
+                    const el = document.querySelector(sel);
+                    if(el) {
+                        el.focus();
+                        document.execCommand('insertText', false, txt); 
+                    }
+                }, selector, cleanLegenda);
                 
                 await new Promise(r => setTimeout(r, 1000));
-
-                // 2. VERIFICAÇÃO E INJEÇÃO DE EMERGÊNCIA
-                // Verificamos o valor diretamente no DOM usando evaluate
-                const checkVal = await page.evaluate((sel) => {
-                    const el = document.querySelector(sel);
-                    return el ? el.value : "";
-                }, structuralSelector);
-                
-                log(`Valor atual no campo: "${checkVal.substring(0, 15)}..."`);
-
-                if (!checkVal || checkVal.trim().length === 0) {
-                    log('AVISO: Campo vazio após digitação. Usando injeção JS direta...');
-                    
-                    await page.evaluate((sel, txt) => {
-                        const el = document.querySelector(sel);
-                        if (el) {
-                            el.value = txt; // Força o valor
-                            // Dispara eventos para o React acordar
-                            el.dispatchEvent(new Event('input', { bubbles: true }));
-                            el.dispatchEvent(new Event('change', { bubbles: true }));
-                            el.dispatchEvent(new Event('blur', { bubbles: true }));
-                        }
-                    }, structuralSelector, cleanLegenda);
-                    
-                    await new Promise(r => setTimeout(r, 1000));
-                    
-                    // Verifica de novo
-                    const reCheck = await page.evaluate(sel => document.querySelector(sel)?.value, structuralSelector);
-                    log(`Valor após injeção: "${reCheck?.substring(0, 15)}..."`);
-                }
-
             } else {
-                log('ERRO CRÍTICO: Textarea não encontrado nem pela estrutura.');
-                const errShot = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
-                return {
-                    status: "error",
-                    error: "Caption field not found via structure",
-                    logs: debugLog,
-                    debug_image: errShot.toString('base64')
-                };
+                log('AVISO: Campo de legenda não encontrado.');
             }
         }
 
-        // --- SHARE ---
-        log('Compartilhando...');
-        
-        let shareClicked = await tapByText(page, ['Share', 'Compartilhar']);
-        
-        if (!shareClicked) {
-            log('Botão texto não achado. Clicando no canto superior direito...');
-            // Tenta clicar no link/botão que estiver no canto superior direito
-            // Baseado no HTML que você mandou, o header é flexbox.
-            await page.mouse.click(350, 50); 
-        }
-        
-        await new Promise(r => setTimeout(r, 15000));
-        log('Finalizado.');
-            
         const finalImgBuffer = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
         finalTextSnapshot = finalImgBuffer.toString('base64');
+
+        // Share
+        log('Compartilhando...');
+        let shareClicked = await clickByText(page, ['Share', 'Compartilhar'], 'div[role="button"]');
+        if(!shareClicked) shareClicked = await clickByText(page, ['Share', 'Compartilhar'], 'button');
+
+        if (shareClicked) {
+            await new Promise(r => setTimeout(r, 15000)); 
+            log('Finalizado.');
+        } else {
+            log('ERRO: Botão Share não encontrado.');
+        }
 
         return {
             status: "finished",
@@ -293,6 +246,108 @@ async function runInstagramBot(body, file) {
     }
 }
 
+// ==========================================
+// 2. LINKEDIN (Restaurado)
+// ==========================================
+async function runLinkedinBot(body, file) {
+    let imagePath = file ? file.path : null;
+    let browser = null;
+    let page = null;
+    let resultBuffer = null;
+
+    try {
+        console.log('[LinkedIn] Iniciando...');
+        const { texto, paginaUrl, cookies, imagemUrl } = body;
+        
+        if (!imagePath && imagemUrl) { try { imagePath = await downloadImage(imagemUrl); } catch (e) {} }
+        if (!cookies) throw new Error('Cookies obrigatórios.');
+
+        const launchArgs = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--window-size=1280,800'];
+        if (USE_PROXY) launchArgs.push(`--proxy-server=${PROXY_HOST}`);
+
+        browser = await puppeteer.launch({ headless: true, args: launchArgs, defaultViewport: { width: 1280, height: 800 }, timeout: 60000 });
+        page = await browser.newPage();
+        if (USE_PROXY && PROXY_USER) await page.authenticate({ username: PROXY_USER, password: PROXY_PASS });
+
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
+        
+        const cookiesJson = typeof cookies === 'string' ? JSON.parse(cookies) : cookies;
+        if (Array.isArray(cookiesJson)) await page.setCookie(...cookiesJson);
+
+        const targetUrl = paginaUrl || 'https://www.linkedin.com/feed/';
+        console.log(`[LinkedIn] Indo para: ${targetUrl}`);
+        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await new Promise(r => setTimeout(r, 6000));
+
+        // Lógica de Postagem LinkedIn
+        const editorSelector = '.ql-editor, div[role="textbox"]';
+        
+        // Tenta abrir o modal se o editor não estiver visível
+        if (!await page.$(editorSelector)) {
+            console.log('[LinkedIn] Tentando abrir modal...');
+            const startPostBtn = await clickByText(page, ['Começar publicação', 'Start a post'], 'button');
+            if(!startPostBtn) {
+                 const btnClass = await page.$('button.share-box-feed-entry__trigger');
+                 if(btnClass) await btnClass.click();
+            }
+            await new Promise(r => setTimeout(r, 4000));
+        }
+
+        if (imagePath) {
+            console.log('[LinkedIn] Colando imagem...');
+            const imgBuffer = await fs.readFile(imagePath);
+            const imgBase64 = imgBuffer.toString('base64');
+            const mimeType = 'image/jpeg';
+            
+            // Garante foco
+            await page.click(editorSelector);
+            await new Promise(r => setTimeout(r, 500));
+            
+            await page.evaluate(async (sel, b64, mime) => {
+                const target = document.querySelector(sel);
+                if (!target) return;
+                const byteChars = atob(b64);
+                const byteNums = new Array(byteChars.length);
+                for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
+                const byteArray = new Uint8Array(byteNums);
+                const blob = new Blob([byteArray], { type: mime });
+                const file = new File([blob], "paste.jpg", { type: mime });
+                const dt = new DataTransfer();
+                dt.items.add(file);
+                const evt = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt });
+                target.focus();
+                target.dispatchEvent(evt);
+            }, editorSelector, imgBase64, mimeType);
+            await new Promise(r => setTimeout(r, 10000)); 
+        }
+
+        if (texto) {
+            console.log('[LinkedIn] Escrevendo texto...');
+            await page.click(editorSelector);
+            await page.keyboard.press('Enter'); 
+            await page.evaluate((txt) => { document.execCommand('insertText', false, txt); }, texto);
+        }
+
+        console.log('[LinkedIn] Publicando...');
+        await new Promise(r => setTimeout(r, 3000));
+        const btnPost = await page.waitForSelector('button.share-actions__primary-action');
+        await btnPost.click();
+        await new Promise(r => setTimeout(r, 12000));
+        
+        console.log('[LinkedIn] Sucesso!');
+        resultBuffer = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
+
+    } catch (error) {
+        if (page && !page.isClosed()) try { resultBuffer = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true }); } catch(e){}
+        throw error;
+    } finally {
+        if (browser) await browser.close();
+        if (imagePath) await fs.remove(imagePath).catch(()=>{});
+    }
+    return resultBuffer;
+}
+
+// --- ROTAS ---
 app.post('/instagram', upload.single('imagem'), async (req, res) => {
     req.setTimeout(1200000); res.setTimeout(1200000);
     addJobToQueue(() => runInstagramBot(req.body, req.file))
@@ -300,4 +355,9 @@ app.post('/instagram', upload.single('imagem'), async (req, res) => {
         .catch((err) => { res.status(500).json({ error: "Erro interno", details: err.message }); });
 });
 
-app.post('/publicar', (req, res) => res.json({msg: "Use /instagram"}));
+app.post('/publicar', upload.single('imagem'), async (req, res) => {
+    req.setTimeout(1200000); res.setTimeout(1200000);
+    addJobToQueue(() => runLinkedinBot(req.body, req.file))
+        .then((img) => { res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': img.length }); res.end(img); })
+        .catch((err) => { res.status(500).json({ erro: err.message }); });
+});
