@@ -26,7 +26,7 @@ const requestQueue = [];
 process.on('uncaughtException', (err) => { console.error('⚠️ CRITICAL:', err); });
 process.on('unhandledRejection', (reason, promise) => { console.error('⚠️ REJECTION:', reason); });
 
-const server = app.listen(PORT, () => console.log(`Super Bot V42 (Sniper) running on ${PORT}`));
+const server = app.listen(PORT, () => console.log(`Super Bot V43 (DOM Surgeon) running on ${PORT}`));
 server.setTimeout(1200000); 
 
 app.use(express.json({ limit: '100mb' }));
@@ -70,7 +70,6 @@ function cleanText(text) {
     return text.replace(/[\u{1F600}-\u{1F6FF}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2702}-\u{27B0}\u{24C2}-\u{1F251}]/gu, '');
 }
 
-// Clique inteligente por Texto (XPath)
 async function tapByText(page, textOptions) {
     try {
         const xpaths = textOptions.map(t => `contains(text(), "${t}")`);
@@ -91,10 +90,10 @@ async function tapByText(page, textOptions) {
     } catch (e) { return false; }
 }
 
-app.get('/', (req, res) => res.send(`Bot V42 Sniper. Queue: ${requestQueue.length}`));
+app.get('/', (req, res) => res.send(`Bot V43 DOM Surgeon. Queue: ${requestQueue.length}`));
 
 // ==========================================
-// CORE LOGIC - INSTAGRAM V42
+// CORE LOGIC - INSTAGRAM V43
 // ==========================================
 async function runInstagramBot(body, file) {
     let imagePath = file ? file.path : null;
@@ -105,7 +104,7 @@ async function runInstagramBot(body, file) {
     
     const log = (msg) => {
         const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
-        console.log(`[Insta V42] ${msg}`);
+        console.log(`[Insta V43] ${msg}`);
         debugLog.push(`[${timestamp}] ${msg}`);
     };
 
@@ -127,7 +126,6 @@ async function runInstagramBot(body, file) {
         browser = await puppeteer.launch({ headless: true, args, defaultViewport: null });
         page = await browser.newPage();
         
-        // Emulação Manual iPhone
         await page.setUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1');
         await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
 
@@ -139,10 +137,9 @@ async function runInstagramBot(body, file) {
         log('Home...');
         await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
         await new Promise(r => setTimeout(r, 4000));
-        
         await tapByText(page, ['Not Now', 'Agora não', 'Cancel', 'Cancelar']);
         
-        // --- UPLOAD (Input Forçado) ---
+        // --- UPLOAD ---
         log('Upload...');
         const newPostSelector = 'svg[aria-label="New post"], svg[aria-label="Nova publicação"], svg[aria-label="Create"]';
         const newPostBtn = await page.$(newPostSelector);
@@ -168,68 +165,82 @@ async function runInstagramBot(body, file) {
         // --- NAVEGAÇÃO ---
         log('Next 1...');
         let clickedNext = await tapByText(page, ['Next', 'Avançar']);
-        if (!clickedNext) await page.mouse.click(350, 50); // Blind click
+        if (!clickedNext) await page.mouse.click(350, 50); 
 
         await new Promise(r => setTimeout(r, 3000));
 
-        log('Next 2 (Filtros -> Legenda)...');
+        log('Next 2...');
         clickedNext = await tapByText(page, ['Next', 'Avançar']);
-        if (!clickedNext) await page.mouse.click(350, 50); // Blind click
+        if (!clickedNext) await page.mouse.click(350, 50);
         
         await new Promise(r => setTimeout(r, 5000)); 
 
-        // --- LEGENDA (MIRA NO SELETOR DO USUÁRIO) ---
+        // --- LEGENDA (MÉTODO CIRURGIA DOM) ---
         if (legenda) {
             const cleanLegenda = cleanText(legenda);
-            log('Procurando textarea específico...');
+            log(`Procurando textarea estrutural (_abrw > textarea)...`);
             
-            // AQUI ESTÁ O SEGREDO: O seletor exato que você me deu
-            // Incluindo fallback para inglês e genérico
-            const selectors = [
-                'textarea[aria-label="Escreva uma legenda..."]',
-                'textarea[aria-label="Write a caption..."]',
-                'textarea' 
-            ];
+            // SELETOR EXATO BASEADO NO SEU HTML
+            // ._abrw é a classe da div que envolve o textarea
+            const structuralSelector = 'div._abrw textarea'; 
             
             let textArea = null;
-            for (const sel of selectors) {
-                try {
-                    textArea = await page.waitForSelector(sel, { timeout: 2000, visible: true });
-                    if (textArea) {
-                        log(`Campo encontrado com seletor: ${sel}`);
-                        break;
-                    }
-                } catch(e) {}
+            try {
+                textArea = await page.waitForSelector(structuralSelector, { timeout: 8000, visible: true });
+            } catch(e) {
+                log('Seletor estrutural falhou. Tentando genérico...');
+                textArea = await page.$('textarea');
             }
 
             if (textArea) {
-                log('Clicando e digitando...');
+                log('Campo encontrado! Focando...');
                 await textArea.tap();
                 await new Promise(r => setTimeout(r, 500));
                 
-                await page.keyboard.type(cleanLegenda, { delay: 30 });
-                await new Promise(r => setTimeout(r, 1000));
+                // MÉTODOS DE DIGITAÇÃO HÍBRIDOS
+                // 1. Tenta Digitação Lenta
+                try {
+                    await page.keyboard.type(cleanLegenda, { delay: 50 });
+                } catch(e) { log('Erro ao digitar: ' + e.message); }
                 
-                // VERIFICAÇÃO REAL DO TEXTAREA
-                const typedValue = await page.evaluate(el => el.value, textArea);
-                log(`Valor lido no campo: "${typedValue?.substring(0, 15)}..."`);
+                await new Promise(r => setTimeout(r, 1000));
 
-                if (!typedValue || typedValue.trim().length === 0) {
-                    log('FALHA: O texto não entrou. Tentando injeção forçada no value...');
-                    await page.evaluate((el, txt) => {
-                        el.value = txt;
-                        el.dispatchEvent(new Event('input', { bubbles: true }));
-                        el.dispatchEvent(new Event('change', { bubbles: true }));
-                    }, textArea, cleanLegenda);
+                // 2. VERIFICAÇÃO E INJEÇÃO DE EMERGÊNCIA
+                // Verificamos o valor diretamente no DOM usando evaluate
+                const checkVal = await page.evaluate((sel) => {
+                    const el = document.querySelector(sel);
+                    return el ? el.value : "";
+                }, structuralSelector);
+                
+                log(`Valor atual no campo: "${checkVal.substring(0, 15)}..."`);
+
+                if (!checkVal || checkVal.trim().length === 0) {
+                    log('AVISO: Campo vazio após digitação. Usando injeção JS direta...');
+                    
+                    await page.evaluate((sel, txt) => {
+                        const el = document.querySelector(sel);
+                        if (el) {
+                            el.value = txt; // Força o valor
+                            // Dispara eventos para o React acordar
+                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                            el.dispatchEvent(new Event('blur', { bubbles: true }));
+                        }
+                    }, structuralSelector, cleanLegenda);
+                    
+                    await new Promise(r => setTimeout(r, 1000));
+                    
+                    // Verifica de novo
+                    const reCheck = await page.evaluate(sel => document.querySelector(sel)?.value, structuralSelector);
+                    log(`Valor após injeção: "${reCheck?.substring(0, 15)}..."`);
                 }
 
             } else {
-                log('ERRO CRÍTICO: Campo não encontrado nem com o seletor exato.');
-                // Print de erro
+                log('ERRO CRÍTICO: Textarea não encontrado nem pela estrutura.');
                 const errShot = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
                 return {
                     status: "error",
-                    error: "Caption field not found",
+                    error: "Caption field not found via structure",
                     logs: debugLog,
                     debug_image: errShot.toString('base64')
                 };
@@ -238,10 +249,13 @@ async function runInstagramBot(body, file) {
 
         // --- SHARE ---
         log('Compartilhando...');
+        
         let shareClicked = await tapByText(page, ['Share', 'Compartilhar']);
         
         if (!shareClicked) {
-            log('Botão texto não achado. Clicando no canto superior direito (Blind Click)...');
+            log('Botão texto não achado. Clicando no canto superior direito...');
+            // Tenta clicar no link/botão que estiver no canto superior direito
+            // Baseado no HTML que você mandou, o header é flexbox.
             await page.mouse.click(350, 50); 
         }
         
