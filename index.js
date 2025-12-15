@@ -26,7 +26,7 @@ const requestQueue = [];
 process.on('uncaughtException', (err) => { console.error('⚠️ CRITICAL:', err); });
 process.on('unhandledRejection', (reason, promise) => { console.error('⚠️ REJECTION:', reason); });
 
-const server = app.listen(PORT, () => console.log(`Super Bot V34 (Real Typer) running on ${PORT}`));
+const server = app.listen(PORT, () => console.log(`Super Bot V35 (The Verifier) running on ${PORT}`));
 server.setTimeout(1200000); 
 
 app.use(express.json({ limit: '100mb' }));
@@ -65,7 +65,6 @@ async function downloadImage(url) {
     });
 }
 
-// Remove emojis e caracteres que quebram a digitação no Linux
 function cleanText(text) {
     if (!text) return "";
     return text.replace(/[\u{1F600}-\u{1F6FF}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2702}-\u{27B0}\u{24C2}-\u{1F251}]/gu, '');
@@ -87,10 +86,10 @@ async function clickByText(page, textsToFind, tag = '*') {
     } catch (e) { return false; }
 }
 
-app.get('/', (req, res) => res.send(`Bot V34 Typer. Queue: ${requestQueue.length}`));
+app.get('/', (req, res) => res.send(`Bot V35 Verifier. Queue: ${requestQueue.length}`));
 
 // ==========================================
-// CORE LOGIC - INSTAGRAM V34
+// CORE LOGIC - INSTAGRAM V35
 // ==========================================
 async function runInstagramBot(body, file) {
     let imagePath = file ? file.path : null;
@@ -134,25 +133,23 @@ async function runInstagramBot(body, file) {
         await new Promise(r => setTimeout(r, 4000));
         await clickByText(page, ['Not Now', 'Agora não', 'Cancel']);
         
-        // --- ABERTURA DO MODAL ---
+        // --- ABERTURA DO MODAL (V19/V33) ---
         log('Abrindo Modal Criar...');
         let createFound = false;
         
-        // Tenta Ícone
         const createSelector = 'svg[aria-label="New post"], svg[aria-label="Nova publicação"], svg[aria-label="Create"], svg[aria-label="Criar"]';
         const iconEl = await page.$(createSelector);
         if (iconEl) {
              await iconEl.evaluate(e => e.closest('a, button, div[role="button"]').click());
              createFound = true;
         } else {
-             // Tenta Texto
              createFound = await clickByText(page, ['Create', 'Criar'], 'span');
         }
         
         if(!createFound) throw new Error('Botão Create não encontrado');
         await new Promise(r => setTimeout(r, 3000));
 
-        // --- UPLOAD (V33 SUCESSO) ---
+        // --- UPLOAD (V19/V33) ---
         log('Selecionando arquivo (FileChooser)...');
         try {
             const fileChooserPromise = page.waitForFileChooser({timeout: 10000});
@@ -163,7 +160,7 @@ async function runInstagramBot(body, file) {
                 await fileChooser.accept([imagePath]);
                 log('Upload iniciado.');
             } else {
-                throw new Error('Botão azul de upload não clicável.');
+                throw new Error('Botão azul não clicável.');
             }
         } catch (e) {
             log('Erro no upload: ' + e.message);
@@ -171,7 +168,6 @@ async function runInstagramBot(body, file) {
         }
 
         log('Aguardando Crop...');
-        // Espera botão Next
         await page.waitForFunction(() => {
             const btns = [...document.querySelectorAll('div[role="button"]')];
             return btns.some(b => b.innerText.includes('Next') || b.innerText.includes('Avançar'));
@@ -185,30 +181,76 @@ async function runInstagramBot(body, file) {
         await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]');
         await new Promise(r => setTimeout(r, 5000)); 
 
-        // --- LEGENDA (MÉTODO V34 - REAL TYPING) ---
+        // --- LEGENDA (MÉTODO V35 - VERIFIER + SPACE TRIGGER) ---
         if (legenda) {
-            // Remove emojis para não travar o Puppeteer no Linux
             const cleanLegenda = cleanText(legenda);
-            log(`Digitando legenda (${cleanLegenda.length} chars)...`);
+            log(`Preparando legenda (${cleanLegenda.length} chars)...`);
             
             const selector = 'div[role="dialog"] div[contenteditable="true"][role="textbox"]';
             const textArea = await page.waitForSelector(selector, { timeout: 10000 });
             
             if (textArea) {
-                // Foca no campo
-                await textArea.click();
+                // 1. Clica no CENTRO do elemento para garantir foco
+                log('Focando campo...');
+                const box = await textArea.boundingBox();
+                if (box) {
+                    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+                } else {
+                    await textArea.click();
+                }
                 await new Promise(r => setTimeout(r, 1000));
 
-                // DIGITAÇÃO REAL (Letra por letra)
-                // Isso força o React do Instagram a detectar cada tecla e atualizar o estado
-                try {
-                    await page.keyboard.type(cleanLegenda, { delay: 10 }); // Delay pequeno para ser rápido, mas humano
-                    log('Digitação concluída.');
-                } catch (typeErr) {
-                    log('Erro na digitação (possível emoji restante): ' + typeErr.message);
-                }
+                // 2. TÉCNICA "SPACE TRIGGER"
+                log('Acordando editor (Space Trigger)...');
+                await page.keyboard.press('Space');
+                await new Promise(r => setTimeout(r, 500));
+                await page.keyboard.press('Backspace');
+                await new Promise(r => setTimeout(r, 500));
 
+                // 3. DIGITAÇÃO
+                log('Digitando texto...');
+                // Digita os primeiros 5 chars lentamente, o resto rápido
+                const chunk1 = cleanLegenda.substring(0, 5);
+                const chunk2 = cleanLegenda.substring(5);
+                
+                if (chunk1) await page.keyboard.type(chunk1, { delay: 200 });
+                if (chunk2) await page.keyboard.type(chunk2, { delay: 10 });
+                
                 await new Promise(r => setTimeout(r, 2000));
+
+                // 4. VERIFICAÇÃO (O QUE FALTAVA)
+                log('Verificando se o texto foi escrito...');
+                const actualText = await page.evaluate((sel) => {
+                    const el = document.querySelector(sel);
+                    return el ? el.innerText : "";
+                }, selector);
+
+                log(`Texto lido do campo: "${actualText.substring(0, 20)}..."`);
+
+                // 5. VALIDAÇÃO E FALLBACK
+                if (!actualText || actualText.trim().length === 0) {
+                    log('FALHA: O texto não apareceu. Tentando método de emergência (Injeção Forçada)...');
+                    
+                    await page.evaluate((sel, txt) => {
+                        const el = document.querySelector(sel);
+                        if(el) {
+                            el.focus();
+                            document.execCommand('insertText', false, txt);
+                        }
+                    }, selector, cleanLegenda);
+                    
+                    await new Promise(r => setTimeout(r, 1000));
+                    
+                    // Verifica de novo
+                    const retryText = await page.evaluate((sel) => document.querySelector(sel)?.innerText, selector);
+                    if (!retryText || retryText.trim().length === 0) {
+                        throw new Error('IMPOSSÍVEL ESCREVER LEGENDA. O campo permanece vazio.');
+                    } else {
+                        log('Sucesso na emergência.');
+                    }
+                } else {
+                    log('Texto validado com sucesso.');
+                }
             } else {
                 log('AVISO: Campo de legenda não encontrado.');
             }
@@ -220,7 +262,8 @@ async function runInstagramBot(body, file) {
         // Share
         log('Compartilhando...');
         let shareClicked = await clickByText(page, ['Share', 'Compartilhar'], 'div[role="button"]');
-        
+        if(!shareClicked) shareClicked = await clickByText(page, ['Share', 'Compartilhar'], 'button');
+
         if (shareClicked) {
             await new Promise(r => setTimeout(r, 15000)); // Espera postar
             log('Finalizado.');
@@ -257,10 +300,7 @@ async function runInstagramBot(body, file) {
 }
 
 app.post('/instagram', upload.single('imagem'), async (req, res) => {
-    // Timeout aumentado para permitir digitação de textos longos
-    req.setTimeout(1200000); 
-    res.setTimeout(1200000);
-    
+    req.setTimeout(1200000); res.setTimeout(1200000);
     addJobToQueue(() => runInstagramBot(req.body, req.file))
         .then((result) => { res.status(200).json(result); })
         .catch((err) => { res.status(500).json({ error: "Erro interno", details: err.message }); });
