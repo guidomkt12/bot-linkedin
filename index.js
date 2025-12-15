@@ -26,7 +26,7 @@ const requestQueue = [];
 process.on('uncaughtException', (err) => { console.error('⚠️ CRITICAL:', err); });
 process.on('unhandledRejection', (reason, promise) => { console.error('⚠️ REJECTION:', reason); });
 
-const server = app.listen(PORT, () => console.log(`Super Bot V39 (Visual Hunter) running on ${PORT}`));
+const server = app.listen(PORT, () => console.log(`Super Bot V40 (Nuclear Option) running on ${PORT}`));
 server.setTimeout(1200000); 
 
 app.use(express.json({ limit: '100mb' }));
@@ -70,7 +70,6 @@ function cleanText(text) {
     return text.replace(/[\u{1F600}-\u{1F6FF}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2702}-\u{27B0}\u{24C2}-\u{1F251}]/gu, '');
 }
 
-// Tenta clicar por texto (XPath)
 async function tapByText(page, textOptions) {
     try {
         const xpaths = textOptions.map(t => `contains(text(), "${t}")`);
@@ -79,7 +78,6 @@ async function tapByText(page, textOptions) {
         if (elements.length > 0) {
             for (const el of elements) {
                 try {
-                    // Verifica se está visível
                     const box = await el.boundingBox();
                     if(box) {
                         await el.tap();
@@ -92,10 +90,10 @@ async function tapByText(page, textOptions) {
     } catch (e) { return false; }
 }
 
-app.get('/', (req, res) => res.send(`Bot V39 Visual Hunter. Queue: ${requestQueue.length}`));
+app.get('/', (req, res) => res.send(`Bot V40 Nuclear. Queue: ${requestQueue.length}`));
 
 // ==========================================
-// CORE LOGIC - INSTAGRAM V39
+// CORE LOGIC - INSTAGRAM V40
 // ==========================================
 async function runInstagramBot(body, file) {
     let imagePath = file ? file.path : null;
@@ -106,7 +104,7 @@ async function runInstagramBot(body, file) {
     
     const log = (msg) => {
         const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
-        console.log(`[Insta V39] ${msg}`);
+        console.log(`[Insta V40] ${msg}`);
         debugLog.push(`[${timestamp}] ${msg}`);
     };
 
@@ -128,7 +126,6 @@ async function runInstagramBot(body, file) {
         browser = await puppeteer.launch({ headless: true, args, defaultViewport: null });
         page = await browser.newPage();
         
-        // Emulação Manual iPhone
         await page.setUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1');
         await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
 
@@ -140,7 +137,6 @@ async function runInstagramBot(body, file) {
         log('Home...');
         await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
         await new Promise(r => setTimeout(r, 5000));
-        
         await tapByText(page, ['Not Now', 'Agora não', 'Cancel', 'Cancelar']);
         
         // --- UPLOAD ---
@@ -166,77 +162,65 @@ async function runInstagramBot(body, file) {
         log('Aguardando Crop...');
         await new Promise(r => setTimeout(r, 6000));
 
-        // --- NAVEGAÇÃO NEXT/AVANÇAR ---
-        // Tenta achar o botão "Next" no topo direito
-        log('Tentando Next 1...');
-        // Clica na região do topo direito (coordenada aproximada no iPhone)
-        // Geralmente o botão "Next" fica em x=350, y=50
+        // --- NAVEGAÇÃO ---
+        log('Next 1...');
         let clickedNext = await tapByText(page, ['Next', 'Avançar']);
-        
-        if (!clickedNext) {
-            log('Texto Next não achado. Clicando no canto superior direito (Blind Click)...');
-            await page.mouse.click(350, 50); // Clicar no canto superior direito
-        }
+        if (!clickedNext) await page.mouse.click(350, 50); 
 
         await new Promise(r => setTimeout(r, 3000));
 
-        // Next 2 (Filtros -> Legenda)
-        log('Tentando Next 2...');
+        log('Next 2...');
         clickedNext = await tapByText(page, ['Next', 'Avançar']);
-        if (!clickedNext) {
-             log('Texto Next 2 não achado. Clicando no canto superior direito (Blind Click)...');
-             await page.mouse.click(350, 50);
-        }
-        await new Promise(r => setTimeout(r, 4000));
+        if (!clickedNext) await page.mouse.click(350, 50);
+        
+        await new Promise(r => setTimeout(r, 5000)); // Espera carregar a tela final
 
-        // --- LEGENDA (Mobile V39) ---
+        // --- LEGENDA (MÉTODO NUCLEAR: TABULAÇÃO) ---
         if (legenda) {
             const cleanLegenda = cleanText(legenda);
-            log('Procurando textarea...');
+            log('Iniciando busca de campo por TABULAÇÃO...');
             
-            // Procura o PRIMEIRO textarea da página. No mobile, só existe um.
-            const textArea = await page.$('textarea');
-            
-            if (textArea) {
-                log('Textarea encontrado! Digitando...');
-                await textArea.tap();
-                await new Promise(r => setTimeout(r, 500));
+            // Clica no meio da tela para garantir foco inicial
+            await page.mouse.click(195, 422);
+            await new Promise(r => setTimeout(r, 500));
+
+            // Tenta dar TAB até achar um campo editável
+            let fieldFound = false;
+            for(let i=0; i<8; i++) { // Tenta 8 vezes
+                await page.keyboard.press('Tab');
+                await new Promise(r => setTimeout(r, 300));
                 
-                await page.keyboard.type(cleanLegenda, { delay: 30 });
-                await new Promise(r => setTimeout(r, 1000));
-            } else {
-                log('AVISO: Textarea não achado.');
-                // Tenta div contenteditable como fallback
-                const divEdit = await page.$('div[contenteditable="true"]');
-                if(divEdit) {
-                    log('Div editável encontrada. Digitando...');
-                    await divEdit.tap();
+                // Verifica se o elemento focado aceita texto
+                const isEditable = await page.evaluate(() => {
+                    const el = document.activeElement;
+                    return el && (el.tagName === 'TEXTAREA' || el.getAttribute('contenteditable') === 'true' || el.tagName === 'INPUT');
+                });
+
+                if(isEditable) {
+                    log(`Campo editável encontrado no TAB ${i+1}! Digitando...`);
                     await page.keyboard.type(cleanLegenda, { delay: 30 });
-                } else {
-                    log('ERRO CRÍTICO: Nenhum campo de texto achado. Tirando print...');
-                    const errShot = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
-                    return { status: "error", error: "Caption field missing", logs: debugLog, debug_image: errShot.toString('base64') };
+                    fieldFound = true;
+                    break;
                 }
+            }
+
+            if (!fieldFound) {
+                log('TAB falhou. Tentando clicar na área superior (onde a legenda costuma ficar)...');
+                await page.mouse.click(100, 150); // Clica na área superior esquerda onde costuma ser a legenda
+                await new Promise(r => setTimeout(r, 500));
+                await page.keyboard.type(cleanLegenda, { delay: 30 });
             }
         }
 
         // --- SHARE ---
-        log('Compartilhando...');
-        
-        // 1. Tenta pelo texto
-        let shareClicked = await tapByText(page, ['Share', 'Compartilhar']);
-        
-        // 2. Se falhar, BLIND CLICK no canto superior direito (onde fica o botão "Share")
-        if (!shareClicked) {
-            log('Botão Share (Texto) não achado. Clicando no canto superior direito (Blind Click)...');
-            await page.mouse.click(350, 50); // Clica em X=350, Y=50
-            shareClicked = true;
-        }
+        log('Compartilhando (Blind Click)...');
+        // No mobile, o botão Share é sempre no canto superior direito.
+        // Vamos clicar lá sem dó.
+        await page.mouse.click(350, 50); 
         
         await new Promise(r => setTimeout(r, 15000));
         log('Finalizado.');
             
-        // Print de sucesso
         const finalImgBuffer = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
         finalTextSnapshot = finalImgBuffer.toString('base64');
 
