@@ -26,7 +26,7 @@ const requestQueue = [];
 process.on('uncaughtException', (err) => { console.error('⚠️ CRITICAL:', err); });
 process.on('unhandledRejection', (reason, promise) => { console.error('⚠️ REJECTION:', reason); });
 
-const server = app.listen(PORT, () => console.log(`Super Bot V32 (Back to Basics) running on ${PORT}`));
+const server = app.listen(PORT, () => console.log(`Super Bot V33 (Frankenstein) running on ${PORT}`));
 server.setTimeout(1200000); 
 
 app.use(express.json({ limit: '100mb' }));
@@ -86,10 +86,10 @@ async function clickByText(page, textsToFind, tag = '*') {
     } catch (e) { return false; }
 }
 
-app.get('/', (req, res) => res.send(`Bot V32 Basics. Queue: ${requestQueue.length}`));
+app.get('/', (req, res) => res.send(`Bot V33 Online. Queue: ${requestQueue.length}`));
 
 // ==========================================
-// CORE LOGIC - INSTAGRAM V32
+// CORE LOGIC - INSTAGRAM V33
 // ==========================================
 async function runInstagramBot(body, file) {
     let imagePath = file ? file.path : null;
@@ -123,7 +123,6 @@ async function runInstagramBot(body, file) {
         page = await browser.newPage();
         if (USE_PROXY && PROXY_USER) await page.authenticate({ username: PROXY_USER, password: PROXY_PASS });
         
-        // User Agent padrão que funcionava
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
 
         const cookiesJson = typeof cookies === 'string' ? JSON.parse(cookies) : cookies;
@@ -132,81 +131,109 @@ async function runInstagramBot(body, file) {
         log('Indo para Home...');
         await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
         await new Promise(r => setTimeout(r, 4000));
-        
         await clickByText(page, ['Not Now', 'Agora não', 'Cancel']);
         
-        // --- ABERTURA DO MODAL ---
+        // --- ABERTURA DO MODAL (Igual V19) ---
         log('Abrindo Modal Criar...');
-        let createFound = await clickByText(page, ['Create', 'Criar'], 'span');
-        if(!createFound) {
-             const svgSelector = 'svg[aria-label="New post"], svg[aria-label="Nova publicação"], svg[aria-label="Create"]';
-             if(await page.$(svgSelector)) { 
-                 await page.click(svgSelector); 
-                 createFound = true; 
-             }
+        let createFound = false;
+        
+        // Tenta Ícone primeiro
+        const createSelector = 'svg[aria-label="New post"], svg[aria-label="Nova publicação"], svg[aria-label="Create"], svg[aria-label="Criar"]';
+        const iconEl = await page.$(createSelector);
+        if (iconEl) {
+             await iconEl.evaluate(e => e.closest('a, button, div[role="button"]').click());
+             createFound = true;
+        } else {
+             // Tenta Texto
+             createFound = await clickByText(page, ['Create', 'Criar'], 'span');
         }
+        
         if(!createFound) throw new Error('Botão Create não encontrado');
-        
-        await new Promise(r => setTimeout(r, 2000));
+        await new Promise(r => setTimeout(r, 3000));
 
-        // --- UPLOAD CLÁSSICO (O que funcionava) ---
-        log('Selecionando arquivo (FileChooser)...');
+        // --- UPLOAD (Igual V19 - O que funcionava) ---
+        log('Selecionando arquivo...');
         
-        const [fileChooser] = await Promise.all([
-            page.waitForFileChooser(),
-            clickByText(page, ['Select from computer', 'Selecionar do computador', 'Select'], 'button')
-        ]);
-        await fileChooser.accept([imagePath]);
-        
+        // Estratégia Dupla: Tenta FileChooser OU Input direto (Pra não ter erro)
+        try {
+            const fileChooserPromise = page.waitForFileChooser({timeout: 7000});
+            // Clica no botão azul
+            const btnClicked = await clickByText(page, ['Select from computer', 'Selecionar do computador', 'Select'], 'button');
+            
+            if (btnClicked) {
+                const fileChooser = await fileChooserPromise;
+                await fileChooser.accept([imagePath]);
+                log('Upload via FileChooser OK.');
+            } else {
+                throw new Error('Botão azul não clicado');
+            }
+        } catch (e) {
+            log('FileChooser falhou ou demorou. Tentando input direto (Fallback)...');
+            const inputUpload = await page.$('input[type="file"]');
+            if(inputUpload) {
+                await inputUpload.uploadFile(imagePath);
+                log('Upload via Input Direto OK.');
+            } else {
+                throw new Error('Nenhum método de upload funcionou.');
+            }
+        }
+
         log('Aguardando Crop (Botão Next)...');
-        // Espera o botão "Next" aparecer
-        await page.waitForFunction(() => {
-            const btns = [...document.querySelectorAll('div[role="button"]')];
-            return btns.some(b => b.innerText.includes('Next') || b.innerText.includes('Avançar'));
-        }, { timeout: 30000 });
+        await new Promise(r => setTimeout(r, 5000)); // Espera cega de 5s para o upload
 
+        // --- NAVEGAÇÃO ---
         log('Next 1...');
-        await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]');
+        let next1 = await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]');
+        if(!next1) next1 = await clickByText(page, ['Next', 'Avançar'], 'button'); // Tenta tag button tbm
+        
         await new Promise(r => setTimeout(r, 2000));
         
         log('Next 2...');
-        await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]');
+        let next2 = await clickByText(page, ['Next', 'Avançar'], 'div[role="button"]');
+        if(!next2) next2 = await clickByText(page, ['Next', 'Avançar'], 'button');
+
         await new Promise(r => setTimeout(r, 5000)); 
 
-        // --- LEGENDA (CORREÇÃO DE TEXTO VAZIO) ---
+        // --- LEGENDA (MÉTODO V25/30 - EXEC COMMAND - O Único que escreve no Linux) ---
         if (legenda) {
             const cleanLegenda = cleanText(legenda);
-            log(`Inserindo legenda...`);
+            log(`Inserindo legenda (${cleanLegenda.length} chars)...`);
             
             const selector = 'div[role="dialog"] div[contenteditable="true"][role="textbox"]';
-            await page.waitForSelector(selector, { timeout: 8000 });
+            try { await page.waitForSelector(selector, { timeout: 8000 }); } catch(e){}
             
             // Foca
-            await page.click(selector);
-            await new Promise(r => setTimeout(r, 500));
+            const textArea = await page.$(selector);
+            if (textArea) {
+                await textArea.click();
+                await new Promise(r => setTimeout(r, 500));
 
-            // INJEÇÃO DIRETA (Resolve o problema do texto vazio e permissão negada)
-            await page.evaluate((sel, txt) => {
-                const el = document.querySelector(sel);
-                if(el) {
-                    el.focus();
-                    // Simula a inserção de texto pelo navegador (bypass clipboard)
-                    document.execCommand('insertText', false, txt);
-                }
-            }, selector, cleanLegenda);
-
-            await new Promise(r => setTimeout(r, 1000));
+                // A Mágica da V25:
+                await page.evaluate((sel, txt) => {
+                    const el = document.querySelector(sel);
+                    if(el) {
+                        el.focus();
+                        document.execCommand('insertText', false, txt); // Injeção direta
+                    }
+                }, selector, cleanLegenda);
+                
+                await new Promise(r => setTimeout(r, 1000));
+            } else {
+                log('AVISO: Campo de legenda não encontrado.');
+            }
         }
 
+        // Tira foto
         const finalImgBuffer = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
         finalTextSnapshot = finalImgBuffer.toString('base64');
 
         // Share
         log('Compartilhando...');
         let shareClicked = await clickByText(page, ['Share', 'Compartilhar'], 'div[role="button"]');
-        
+        if(!shareClicked) shareClicked = await clickByText(page, ['Share', 'Compartilhar'], 'button');
+
         if (shareClicked) {
-            await new Promise(r => setTimeout(r, 10000));
+            await new Promise(r => setTimeout(r, 15000)); // Espera postar
             log('Finalizado.');
         } else {
             log('ERRO: Botão Share não encontrado.');
