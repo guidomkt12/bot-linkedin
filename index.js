@@ -14,7 +14,7 @@ const PORT = process.env.PORT || 80;
 const upload = multer({ dest: '/tmp/uploads/' });
 
 // --- CONFIGURAÇÃO ---
-const MAX_CONCURRENT = 5;
+const MAX_CONCURRENT = 5; 
 const PROXY_HOST = process.env.PROXY_HOST || ''; 
 const PROXY_USER = process.env.PROXY_USER || '';
 const PROXY_PASS = process.env.PROXY_PASS || '';
@@ -26,7 +26,7 @@ const requestQueue = [];
 process.on('uncaughtException', (err) => { console.error('⚠️ CRITICAL:', err); });
 process.on('unhandledRejection', (reason, promise) => { console.error('⚠️ REJECTION:', reason); });
 
-const server = app.listen(PORT, () => console.log(`Super Bot V36 (Mobile Mode) running on ${PORT}`));
+const server = app.listen(PORT, () => console.log(`Super Bot V37 (Manual Mobile) running on ${PORT}`));
 server.setTimeout(1200000); 
 
 app.use(express.json({ limit: '100mb' }));
@@ -70,7 +70,6 @@ function cleanText(text) {
     return text.replace(/[\u{1F600}-\u{1F6FF}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2702}-\u{27B0}\u{24C2}-\u{1F251}]/gu, '');
 }
 
-// Função de clique/toque universal
 async function clickByText(page, textsToFind, tag = '*') {
     try {
         return await page.evaluate((texts, tagName) => {
@@ -78,7 +77,7 @@ async function clickByText(page, textsToFind, tag = '*') {
             for (const el of elements) {
                 const txt = el.innerText || el.getAttribute('aria-label') || '';
                 if (texts.some(t => txt.toLowerCase().includes(t.toLowerCase()))) {
-                    el.click(); // Mobile often responds better to standard click events simulated by JS
+                    el.click();
                     return true;
                 }
             }
@@ -87,10 +86,10 @@ async function clickByText(page, textsToFind, tag = '*') {
     } catch (e) { return false; }
 }
 
-app.get('/', (req, res) => res.send(`Bot V36 Mobile. Queue: ${requestQueue.length}`));
+app.get('/', (req, res) => res.send(`Bot V37 Manual Mobile. Queue: ${requestQueue.length}`));
 
 // ==========================================
-// CORE LOGIC - INSTAGRAM V36 (MOBILE)
+// CORE LOGIC - INSTAGRAM V37 (MANUAL MOBILE)
 // ==========================================
 async function runInstagramBot(body, file) {
     let imagePath = file ? file.path : null;
@@ -110,12 +109,12 @@ async function runInstagramBot(body, file) {
         if (!imagePath && imagemUrl) try { imagePath = await downloadImage(imagemUrl); } catch (e) {}
         if (!imagePath) throw new Error('No Image provided');
         
-        log('Iniciando navegador (Emulando iPhone)...');
+        log('Iniciando navegador (iPhone 12 Pro Manual)...');
         const args = [
             '--no-sandbox', 
             '--disable-setuid-sandbox', 
             '--disable-dev-shm-usage',
-            '--window-size=375,812', // Tamanho iPhone X
+            '--window-size=390,844', // Tamanho real do iPhone 12 Pro
             '--start-maximized'
         ];
         if (USE_PROXY) args.push(`--proxy-server=${PROXY_HOST}`);
@@ -123,9 +122,17 @@ async function runInstagramBot(body, file) {
         browser = await puppeteer.launch({ headless: true, args, defaultViewport: null });
         page = await browser.newPage();
         
-        // Emula iPhone 12 Pro
-        const iPhone = puppeteer.devices['iPhone 12 Pro'];
-        await page.emulate(iPhone);
+        // --- CONFIGURAÇÃO MANUAL DO IPHONE ---
+        // User Agent de iPhone no iOS 15
+        await page.setUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1');
+        // Viewport com Touch habilitado
+        await page.setViewport({
+            width: 390,
+            height: 844,
+            isMobile: true,
+            hasTouch: true,
+            deviceScaleFactor: 3
+        });
 
         if (USE_PROXY && PROXY_USER) await page.authenticate({ username: PROXY_USER, password: PROXY_PASS });
 
@@ -134,71 +141,68 @@ async function runInstagramBot(body, file) {
 
         log('Acessando Home Mobile...');
         await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-        await new Promise(r => setTimeout(r, 4000));
+        await new Promise(r => setTimeout(r, 5000));
         
-        // Fecha popups (App, Cookies, Notificações)
+        // Fecha popups chatos
         await clickByText(page, ['Not Now', 'Agora não', 'Cancel', 'Cancelar'], 'button');
-        await clickByText(page, ['Not Now', 'Agora não', 'Cancel', 'Cancelar'], 'div'); // Às vezes é div
-
-        // --- UPLOAD MOBILE ---
-        // No mobile, o botão "Nova publicação" geralmente é o [+] no rodapé ou topo
-        log('Buscando botão de upload (Mobile)...');
         
-        // Tenta achar o input file diretamente (o botão [+] é um label para ele muitas vezes)
-        // Se não achar, clica no ícone de "New Post"
+        // --- UPLOAD MOBILE ---
+        log('Buscando botão de upload...');
+        
+        // No mobile web, o botão de criar geralmente é um SVG de [+]
+        // Vamos tentar clicar nele ou injetar no input file se ele existir
         
         const newPostSelector = 'svg[aria-label="New post"], svg[aria-label="Nova publicação"], svg[aria-label="Create"]';
         const newPostBtn = await page.$(newPostSelector);
         
         if (newPostBtn) {
-            // Em mobile, clicar no [+] abre o file picker do sistema
-            // Puppeteer intercepta isso com waitForFileChooser
-            const fileChooserPromise = page.waitForFileChooser({ timeout: 10000 });
+            log('Botão [+] encontrado. Clicando...');
+            const fileChooserPromise = page.waitForFileChooser({ timeout: 15000 });
             
-            // Clica no botão (elemento pai do SVG geralmente)
-            await newPostBtn.evaluate(e => e.closest('div[role="button"]').click());
+            // Clica no pai do SVG (geralmente uma div ou a)
+            await newPostBtn.evaluate(e => e.closest('div[role="button"], a').click());
             
             const fileChooser = await fileChooserPromise;
             await fileChooser.accept([imagePath]);
-            log('Upload iniciado (Mobile).');
+            log('Arquivo selecionado.');
         } else {
-             // Fallback: Tenta achar input file na página inteira e forçar upload
+             log('Botão [+] não achado. Tentando Input direto...');
              const inputUpload = await page.$('input[type="file"]');
              if(inputUpload) {
                  await inputUpload.uploadFile(imagePath);
                  await inputUpload.evaluate(e => e.dispatchEvent(new Event('change', { bubbles: true })));
-                 log('Upload forçado via Input.');
+                 log('Upload forçado via Input OK.');
              } else {
                  throw new Error('Botão de upload mobile não encontrado.');
              }
         }
 
         log('Aguardando tela de edição...');
-        await new Promise(r => setTimeout(r, 5000));
+        await new Promise(r => setTimeout(r, 6000));
 
-        // Next 1 (Filtros -> Avançar)
-        // No mobile, geralmente é um texto "Next" ou "Avançar" no topo direito
+        // Next 1
         log('Clicando Next 1...');
+        // No mobile, o botão "Next" costuma ser um texto azul no topo direito
         let next1 = await clickByText(page, ['Next', 'Avançar'], 'button');
-        if(!next1) next1 = await clickByText(page, ['Next', 'Avançar'], 'div'); // Texto puro as vezes
+        if(!next1) next1 = await clickByText(page, ['Next', 'Avançar'], 'div');
         
         await new Promise(r => setTimeout(r, 3000));
         
-        // Next 2 (Se houver tela de edição extra)
-        // Às vezes vai direto para a legenda
+        // Verifica se tem tela de filtros (às vezes pula)
         log('Verificando segunda tela...');
         let next2 = await clickByText(page, ['Next', 'Avançar'], 'button');
+        if(!next2) next2 = await clickByText(page, ['Next', 'Avançar'], 'div');
+        
         if (next2) {
              await new Promise(r => setTimeout(r, 3000));
         }
 
         // --- LEGENDA (MOBILE) ---
-        // A tela de legenda mobile é mais simples. Geralmente um <textarea> ou <div contenteditable>
         if (legenda) {
             const cleanLegenda = cleanText(legenda);
-            log('Procurando campo de legenda...');
+            log(`Procurando campo de legenda (${cleanLegenda.length} chars)...`);
             
-            // Tenta seletores comuns mobile
+            // Seletores comuns no mobile
             const selectors = [
                 'textarea', 
                 'div[contenteditable="true"]',
@@ -217,22 +221,21 @@ async function runInstagramBot(body, file) {
                 await textArea.click(); // Tap
                 await new Promise(r => setTimeout(r, 500));
                 
-                // Em mobile, type costuma ser mais confiável que execCommand
-                await page.keyboard.type(cleanLegenda, { delay: 10 });
-                await new Promise(r => setTimeout(r, 1000));
+                // No mobile, 'type' é muito mais seguro que 'execCommand'
+                await page.keyboard.type(cleanLegenda, { delay: 30 });
+                await new Promise(r => setTimeout(r, 2000));
             } else {
                 log('AVISO: Campo de legenda não encontrado no modo Mobile.');
             }
         }
 
-        // Tira foto de diagnóstico
         const finalImgBuffer = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: true });
         finalTextSnapshot = finalImgBuffer.toString('base64');
 
         // Share
         log('Compartilhando...');
         let shareClicked = await clickByText(page, ['Share', 'Compartilhar'], 'button');
-        if(!shareClicked) shareClicked = await clickByText(page, ['Share', 'Compartilhar'], 'div'); // Texto azul no topo
+        if(!shareClicked) shareClicked = await clickByText(page, ['Share', 'Compartilhar'], 'div');
 
         if (shareClicked) {
             await new Promise(r => setTimeout(r, 15000)); 
